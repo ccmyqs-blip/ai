@@ -1,0 +1,136 @@
+﻿:root {
+  color-scheme: light;
+  font-family: "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
+  background-color: #0f111a;
+  color: #f8fbff;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #0c1226, #171b33 60%, #1f2b5a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+.shell-app {
+  width: min(960px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.intro {
+  background: rgba(13, 21, 48, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  font-size: 0.75rem;
+  margin: 0;
+  color: #7dd3fc;
+}
+.intro h1 {
+  margin: 0.4rem 0;
+}
+.card {
+  background: rgba(10, 10, 22, 0.9);
+  border-radius: 16px;
+  padding: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+.card label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+.card input,
+.card textarea {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(20, 30, 52, 0.6);
+  padding: 0.85rem;
+  font-size: 1rem;
+  color: inherit;
+}
+.card textarea {
+  font-family: "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
+  resize: vertical;
+}
+.button-row {
+  margin-top: 0.75rem;
+  display: flex;
+  gap: 0.75rem;
+}
+button {
+  flex: 1;
+  padding: 0.9rem 1.2rem;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  background: linear-gradient(135deg, #10b981, #16a34a);
+  color: #fff;
+  box-shadow: 0 10px 20px rgba(16, 185, 129, 0.25);
+}
+button:active {
+  transform: translateY(1px);
+}
+button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.hint {
+  display: block;
+  margin-top: 0.45rem;
+  color: #a8b5e0;
+}
+.results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+.result-card {
+  background: rgba(6, 10, 20, 0.9);
+  border-radius: 14px;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.result-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+.result-card pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 10px;
+  padding: 0.75rem;
+  min-height: 130px;
+  color: #dce6ff;
+}
+footer {
+  margin-top: 1rem;
+  text-align: center;
+  color: #8c9bf6;
+}
+@media (max-width: 640px) {
+  body {
+    padding: 1rem;
+  }
+  button {
+    font-size: 0.95rem;
+  }
+}
