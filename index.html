@@ -42,23 +42,33 @@
             <span>零风险</span>
           </div>
         </div>
-        <div class="hero__steps">
-          <article>
-            <p class="step-index">1</p>
-            <h3>卡密查验</h3>
-            <p>输入 CDKEY 立即验证 use_status、status_hint、冷却状态，高频检测也能奔溃。</p>
-          </article>
-          <article>
-            <p class="step-index">2</p>
-            <h3>提交 Session</h3>
-            <p>支持 JSON 格式的 session_info，保证 planType 为 free，前端可复制 / 粘贴。</p>
-          </article>
-          <article>
-            <p class="step-index">3</p>
-            <h3>立即激活</h3>
-            <p>请求 /api/activate，返回成功信息或详细错误原因，方便快速复用已有记录。</p>
-          </article>
+        <div class="hero__cta">
+          <p>输入卡密后按步骤执行，最快 30 秒完成一次查验和激活。</p>
         </div>
+      </section>
+
+      <section class="shell-pro__flow">
+        <div class="flow-head">
+          <p class="eyebrow">三步完成充值</p>
+          <h2>1 2 3 标准流程</h2>
+        </div>
+        <ol class="flow-list">
+          <li class="flow-item">
+            <span class="flow-num">1</span>
+            <h3>输入卡密</h3>
+            <p>填写 CDKEY 并点击“立即验证”，确认 use_status 和 cooldown 信息。</p>
+          </li>
+          <li class="flow-item">
+            <span class="flow-num">2</span>
+            <h3>粘贴 Session</h3>
+            <p>将 session_info JSON 粘贴到文本框，确保 account.planType 为 free。</p>
+          </li>
+          <li class="flow-item">
+            <span class="flow-num">3</span>
+            <h3>一键激活</h3>
+            <p>点击“开始激活”，等待接口返回成功状态和绑定账号信息。</p>
+          </li>
+        </ol>
       </section>
 
       <section class="shell-pro__form">
