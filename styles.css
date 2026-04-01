@@ -20,11 +20,14 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  margin: 0 auto;
 }
 .shell-pro__header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 .shell-pro__logo {
   display: flex;
@@ -59,10 +62,20 @@ body {
   border-radius: 999px;
   font-size: 0.85rem;
   cursor: pointer;
+  flex: 0 0 auto;
+  box-shadow: none;
+  transition: none;
 }
 .lang.active {
   background: linear-gradient(135deg, #38bdf8, #6366f1);
   border-color: transparent;
+}
+.eyebrow {
+  margin: 0;
+  color: #7dd3fc;
+  letter-spacing: 0.08em;
+  font-size: 0.86rem;
+  font-weight: 600;
 }
 .shell-pro__hero {
   background: linear-gradient(160deg, rgba(15, 23, 42, 0.9), rgba(5, 7, 15, 0.95));
@@ -171,7 +184,7 @@ body {
   display: flex;
   gap: 0.9rem;
 }
-button {
+.button-row button {
   flex: 1;
   padding: 0.95rem 1.2rem;
   border: none;
@@ -184,10 +197,10 @@ button {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   box-shadow: 0 12px 20px rgba(37, 99, 235, 0.35);
 }
-button:active {
+.button-row button:active {
   transform: translateY(2px);
 }
-button[disabled] {
+.button-row button[disabled] {
   opacity: 0.5;
   cursor: not-allowed;
   box-shadow: none;
@@ -251,6 +264,19 @@ button[disabled] {
 }
 @media (max-width: 640px) {
   body {
+    padding: 1rem;
+  }
+  .shell-pro__logo {
+    width: 100%;
+  }
+  .shell-pro__lang {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .shell-pro__hero {
+    padding: 1.25rem;
+  }
+  .form-card {
     padding: 1rem;
   }
   .button-row {
