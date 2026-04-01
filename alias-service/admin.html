@@ -1,0 +1,181 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alias CDKEY Admin</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #0b1020;
+        color: #e6edff;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+      }
+      .panel {
+        width: min(760px, 100%);
+        background: #111a33;
+        border: 1px solid #253463;
+        border-radius: 14px;
+        padding: 20px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+      .hint {
+        margin: 0 0 16px;
+        color: #9db2f0;
+        font-size: 14px;
+      }
+      label {
+        display: block;
+        margin: 12px 0 6px;
+        font-weight: 600;
+      }
+      input,
+      button {
+        width: 100%;
+        box-sizing: border-box;
+      }
+      input {
+        border: 1px solid #3754a5;
+        background: #0e1630;
+        color: #fff;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 14px;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 14px;
+      }
+      button {
+        border: none;
+        border-radius: 10px;
+        padding: 11px 12px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        color: #fff;
+        background: linear-gradient(135deg, #21d4fd, #2962ff);
+      }
+      button.secondary {
+        background: #1f2f5f;
+      }
+      .result {
+        margin-top: 16px;
+        border: 1px solid #30467f;
+        background: #0b142b;
+        border-radius: 10px;
+        padding: 12px;
+        white-space: pre-wrap;
+        line-height: 1.5;
+      }
+      .error {
+        color: #ff8ca8;
+      }
+      .ok {
+        color: #83f5c0;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="panel">
+      <h1>二次CDKEY隐藏管理页</h1>
+      <p class="hint">隐藏入口：/_hidden/alias-admin。输入管理密码后，可将原始CDKEY生成不重复的二次CDKEY。</p>
+
+      <label for="password">管理密码</label>
+      <input id="password" type="password" placeholder="请输入管理密码" autocomplete="off" />
+
+      <label for="cdkey">原始CDKEY</label>
+      <input id="cdkey" type="text" placeholder="请输入套壳网站原CDKEY" autocomplete="off" />
+
+      <div class="row">
+        <button id="create-btn" type="button">生成二次CDKEY</button>
+        <button id="copy-btn" class="secondary" type="button">复制结果</button>
+      </div>
+
+      <pre id="result" class="result">等待操作...</pre>
+    </main>
+
+    <script>
+      const createBtn = document.getElementById("create-btn");
+      const copyBtn = document.getElementById("copy-btn");
+      const passwordInput = document.getElementById("password");
+      const cdkeyInput = document.getElementById("cdkey");
+      const resultNode = document.getElementById("result");
+      let lastAlias = "";
+
+      function showResult(text, ok) {
+        resultNode.textContent = text;
+        resultNode.classList.toggle("ok", !!ok);
+        resultNode.classList.toggle("error", !ok);
+      }
+
+      createBtn.addEventListener("click", async () => {
+        const adminPassword = passwordInput.value.trim();
+        const cdkey = cdkeyInput.value.trim();
+
+        if (!adminPassword) {
+          showResult("请输入管理密码", false);
+          return;
+        }
+
+        if (!cdkey) {
+          showResult("请输入原始CDKEY", false);
+          return;
+        }
+
+        createBtn.disabled = true;
+        showResult("生成中...", true);
+
+        try {
+          const response = await fetch("/v1/admin/alias/create", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Admin-Password": adminPassword,
+            },
+            body: JSON.stringify({ cdkey }),
+          });
+
+          const payload = await response.json();
+          if (!response.ok || payload.success !== true) {
+            showResult(payload.msg || "生成失败", false);
+            return;
+          }
+
+          lastAlias = payload.data?.alias_cdkey || "";
+          showResult(`生成成功\n原CDKEY: ${cdkey}\n二次CDKEY: ${lastAlias}`, true);
+        } catch (error) {
+          showResult(error.message || "请求失败", false);
+        } finally {
+          createBtn.disabled = false;
+        }
+      });
+
+      copyBtn.addEventListener("click", async () => {
+        if (!lastAlias) {
+          showResult("暂无可复制的二次CDKEY", false);
+          return;
+        }
+
+        try {
+          await navigator.clipboard.writeText(lastAlias);
+          showResult(`已复制: ${lastAlias}`, true);
+        } catch {
+          showResult(`复制失败，请手动复制: ${lastAlias}`, false);
+        }
+      });
+    </script>
+  </body>
+</html>

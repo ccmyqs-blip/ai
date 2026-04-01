@@ -3,133 +3,113 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>GPT CDKEY 套壳</title>
+    <title>AI助手充值系统</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20260401a" />
   </head>
   <body>
     <div class="shell-pro">
       <header class="shell-pro__header">
         <div class="shell-pro__logo">
           <span class="logo-mark">AI</span>
-          <div>
-            <strong>AI智能助手充值中心</strong>
-            <p>正规渠道 · 非零元购 · 不泄露帐号 · 零 风 险</p>
-          </div>
+          <strong data-i18n="brandTitle">AI助手充值系统</strong>
         </div>
         <div class="shell-pro__lang">
-          <button class="lang active">简体中文</button>
-          <button class="lang">English</button>
+          <button class="lang active" type="button" data-lang="zh">简体中文</button>
+          <button class="lang" type="button" data-lang="en">English</button>
         </div>
       </header>
 
-      <section class="shell-pro__hero">
-        <div class="hero__content">
-          <p class="eyebrow">零封号 · 极速激活</p>
-          <h1>卡密查验 &amp; 激活一站式体验</h1>
-          <p>
-            直连 GPT 官方 /api 检测与激活接口，实时返回状态、冷却、地图提示。前端可
-            直接调用，也支持自定义代理，适用于 GitHub Pages + 自定义域场景。
-          </p>
-          <div class="hero__badges">
-            <span>无需上号</span>
-            <span>不封号</span>
-            <span>零风险</span>
-          </div>
-        </div>
-        <div class="hero__cta">
-          <p>输入卡密后按步骤执行，最快 30 秒完成一次查验和激活。</p>
-        </div>
-      </section>
-
       <section class="shell-pro__flow">
         <div class="flow-head">
-          <p class="eyebrow">三步完成充值</p>
-          <h2>1 2 3 标准流程</h2>
+          <h2 data-i18n="guideTitle">操作指南</h2>
         </div>
         <ol class="flow-list">
           <li class="flow-item">
             <span class="flow-num">1</span>
-            <h3>输入卡密</h3>
-            <p>填写 CDKEY 并点击“立即验证”，确认 use_status 和 cooldown 信息。</p>
+            <h3 data-i18n="guideStep1Title">卡密查询</h3>
+            <p data-i18n="guideStep1Body">请输入您的二次CDKEY并点击立即验证。</p>
           </li>
           <li class="flow-item">
             <span class="flow-num">2</span>
-            <h3>粘贴 Session</h3>
-            <p>将 session_info JSON 粘贴到文本框，确保 account.planType 为 free。</p>
+            <h3 data-i18n="guideStep2Title">确认登录状态</h3>
+            <p data-i18n="guideStep2Body">请确认您已在 chatgpt.com 登录账户，然后选择下一步操作。</p>
           </li>
           <li class="flow-item">
             <span class="flow-num">3</span>
-            <h3>一键激活</h3>
-            <p>点击“开始激活”，等待接口返回成功状态和绑定账号信息。</p>
+            <h3 data-i18n="guideStep3Title">提交充值信息</h3>
+            <p data-i18n="guideStep3Body">点击打开AuthSession页面按钮，将页面内的所有内容复制在session_info输入框内。</p>
           </li>
         </ol>
       </section>
 
       <section class="shell-pro__form">
         <div class="form-card">
-          <label for="cdkey-input">请输入卡密</label>
-          <input id="cdkey-input" type="text" placeholder="XXXXX-XXXXX-XXXXX" maxlength="30" autocomplete="off" />
+          <label for="cdkey-input" data-i18n="cdkeyLabel">请输入二次CDKEY</label>
+          <input
+            id="cdkey-input"
+            type="text"
+            data-i18n-placeholder="cdkeyPlaceholder"
+            placeholder="例如：5S8F-S888G-5G5G-55HH"
+            maxlength="30"
+            autocomplete="off"
+          />
           <div class="button-row">
-            <button id="check-button" type="button">立即验证</button>
-            <button id="activate-button" type="button">开始激活</button>
+            <button id="check-button" type="button" data-i18n="checkButton">立即验证</button>
+            <button id="activate-button" type="button" data-i18n="activateButton">开始激活</button>
           </div>
         </div>
         <div class="form-card form-card--secondary">
-          <label for="session-info">session_info（JSON）</label>
+          <label for="session-info" data-i18n="sessionLabel">session_info（JSON）</label>
           <textarea
             id="session-info"
             rows="5"
+            data-i18n-placeholder="sessionPlaceholder"
             placeholder='{"account":{"id":"user-xxx","planType":"free"},"accessToken":"ey...","user":{"email":"test@example.com"}}'
           ></textarea>
-          <p class="note">仅支持 planType:"free"，其他 plan 会被拒绝。若 token 过期，先获取最新。</p>
+          <div class="auth-actions">
+            <a
+              class="action-link"
+              href="https://chatgpt.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              data-i18n="openChatgpt"
+              >打开 ChatGPT</a
+            >
+            <a
+              class="action-link"
+              href="https://chatgpt.com/api/auth/session"
+              target="_blank"
+              rel="noopener noreferrer"
+              data-i18n="openAuthSession"
+              >打开 AuthSession 页面</a
+            >
+          </div>
         </div>
       </section>
 
       <section class="shell-pro__status">
-        <article>
-          <h2>查验结果</h2>
+        <article id="check-result-card" class="is-hidden">
+          <h2 data-i18n="checkResultTitle">查验结果</h2>
           <pre id="check-result">尚未请求</pre>
         </article>
-        <article>
-          <h2>激活结果</h2>
+        <article id="activate-result-card" class="is-hidden">
+          <h2 data-i18n="activateResultTitle">激活结果</h2>
           <pre id="activate-result">尚未请求</pre>
         </article>
       </section>
-
-      <section class="shell-pro__tips">
-        <h3>操作小贴士</h3>
-        <div class="tips-grid">
-          <div>
-            <strong>JSON 示例</strong>
-            <p>
-              {<br />
-              &nbsp;&nbsp;"account": { "id": "user-xxx", "planType": "free" },<br />
-              &nbsp;&nbsp;"accessToken": "ey...",<br />
-              &nbsp;&nbsp;"user": { "email": "test@example.com" }<br />
-              }
-            </p>
-          </div>
-          <div>
-            <strong>确认登录状态</strong>
-            <p>请先在 chatgpt.com 登录账户，然后填入 JSON（accessToken 需有效）。</p>
-          </div>
-          <div>
-            <strong>冷却机制</strong>
-            <p>若 in_cooldown=true，请等待 cooldown_remaining 秒后再尝试激活。</p>
-          </div>
-        </div>
-      </section>
-      <footer class="shell-pro__footer">
-        <p>默认直连 gpt.86gamestore.com/api，若需代理，请在 HTML 先设置 window.GPT_SHELL_CONFIG。</p>
-      </footer>
     </div>
 
-    <script type="module" src="app.js"></script>
+    <script>
+      window.GPT_SHELL_CONFIG = {
+        aliasApiBaseUrl: "https://alias-service.ccmyqs.workers.dev/v1/alias"
+      };
+    </script>
+    <script type="module" src="app.js?v=20260401b"></script>
   </body>
 </html>
