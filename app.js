@@ -16,7 +16,7 @@ const localeText = {
     guideStep2Title: "确认登录状态",
     guideStep2Body: "请确认您已在 chatgpt.com 登录账户，然后选择下一步操作。",
     guideStep3Title: "提交充值信息",
-    guideStep3Body: "点击打开AuthSession页面按钮，将页面内的所有内容复制在session_info输入框内。",
+    guideStep3Body: "点击打开AuthSession页面按钮，将页面内的所有内容复制在session_info输入框内，点击开始激活按钮。",
     cdkeyLabel: "请输入二次CDKEY",
     cdkeyPlaceholder: "例如：5S8F-S888G-5G5G-55HH",
     checkButton: "立即验证",
