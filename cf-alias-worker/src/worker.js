@@ -1,6 +1,7 @@
 ﻿const ALIAS_SEGMENTS = [4, 5, 4, 4];
 const ALIAS_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+const REAL_CDKEY_INDEX_PREFIX = "REAL::";
 const MAX_BATCH_COUNT = 100;
 const MAX_PAIR_COUNT = 500;
 
@@ -31,6 +32,14 @@ function html(body, status = 200) {
 
 function normalizeAlias(v) {
   return String(v || "").trim().toUpperCase();
+}
+
+function normalizeRealCdkey(v) {
+  return String(v || "").trim().toUpperCase();
+}
+
+function realCdkeyIndexKey(realCdkey) {
+  return `${REAL_CDKEY_INDEX_PREFIX}${normalizeRealCdkey(realCdkey)}`;
 }
 
 function requiredString(v, name) {
@@ -71,13 +80,70 @@ async function generateUniqueAlias(env) {
   throw new Error("无法生成不重复二次CDKEY");
 }
 
+async function getMappedCdkeyByAlias(env, alias) {
+  const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
+  if (!mapped || typeof mapped !== "object" || !mapped.cdkey) return "";
+  return String(mapped.cdkey).trim();
+}
+
+async function findExistingAliasByRealCdkey(env, realCdkey) {
+  const normalizedCdkey = normalizeRealCdkey(realCdkey);
+  if (!normalizedCdkey) return "";
+  const reverseKey = realCdkeyIndexKey(normalizedCdkey);
+
+  const indexedAlias = normalizeAlias(await env.ALIAS_MAP.get(reverseKey));
+  if (indexedAlias) {
+    const indexedCdkey = await getMappedCdkeyByAlias(env, indexedAlias);
+    if (normalizeRealCdkey(indexedCdkey) === normalizedCdkey) {
+      return indexedAlias;
+    }
+    // Reverse index may get stale when data is adjusted manually.
+    await env.ALIAS_MAP.delete(reverseKey);
+  }
+
+  let cursor;
+  do {
+    const listed = await env.ALIAS_MAP.list({ cursor, limit: 1000 });
+    for (const key of listed.keys || []) {
+      const alias = String(key?.name || "");
+      if (!ALIAS_PATTERN.test(alias)) continue;
+      const mappedCdkey = await getMappedCdkeyByAlias(env, alias);
+      if (normalizeRealCdkey(mappedCdkey) === normalizedCdkey) {
+        await env.ALIAS_MAP.put(reverseKey, alias);
+        return alias;
+      }
+    }
+    cursor = listed.list_complete ? undefined : listed.cursor;
+  } while (cursor);
+
+  return "";
+}
+
 async function storeAlias(env, realCdkey) {
+  const normalizedCdkey = normalizeRealCdkey(realCdkey);
+  const reverseKey = realCdkeyIndexKey(normalizedCdkey);
+  const existingAlias = await findExistingAliasByRealCdkey(env, normalizedCdkey);
+  if (existingAlias) {
+    return { alias: existingAlias, created: false };
+  }
+
+  const recheckedAlias = normalizeAlias(await env.ALIAS_MAP.get(reverseKey));
+  if (recheckedAlias) {
+    return { alias: recheckedAlias, created: false };
+  }
+
   const alias = await generateUniqueAlias(env);
+  const realCdkeyTrimmed = String(realCdkey || "").trim();
   await env.ALIAS_MAP.put(
     alias,
-    JSON.stringify({ cdkey: realCdkey, created_at: new Date().toISOString() })
+    JSON.stringify({
+      cdkey: realCdkeyTrimmed,
+      cdkey_normalized: normalizedCdkey,
+      created_at: new Date().toISOString(),
+    })
   );
-  return alias;
+  await env.ALIAS_MAP.put(reverseKey, alias);
+  return { alias, created: true };
 }
 
 function parseCdkeyLines(text) {
@@ -145,6 +211,7 @@ function adminHtml() {
   <main class="panel">
     <h1>二次CDKEY隐藏管理页</h1>
     <p>入口：/_hidden/alias-admin</p>
+    <p>规则：同一个原始CDKEY只会对应一个二次CDKEY（自动查重）</p>
 
     <label>管理密码</label>
     <input id="pwd" type="password" placeholder="请输入管理密码" autocomplete="new-password"/>
@@ -154,7 +221,7 @@ function adminHtml() {
     <div class="row3">
       <input id="count" type="number" min="1" max="100" value="10" placeholder="批量数量"/>
       <button id="create">单个生成</button>
-      <button id="batch">同原CDKEY批量生成</button>
+      <button id="batch">同原CDKEY查重生成(一对一)</button>
     </div>
 
     <label>一对一批量原始CDKEY（每行一个）</label>
@@ -211,14 +278,16 @@ function adminHtml() {
         lastAliasList=(j.data&&j.data.alias_cdkeys)||[];
         lastAlias=lastAliasList[0]||'';
         lastPairList=[];
-        show('同原CDKEY批量生成成功\\n原CDKEY: '+c+'\\n数量: '+lastAliasList.length+'\\n\\n'+lastAliasList.join('\\n'));
+        const created=(j.data&&j.data.created)===true;
+        const requested=(j.data&&j.data.requested_count)||count;
+        show('一对一模式处理完成\\n原CDKEY: '+c+'\\n二次CDKEY: '+lastAlias+'\\n状态: '+(created?'新建':'已存在')+'\\n请求数量: '+requested+'（一对一模式下仅保留1个）');
         return;
       }
 
       lastAlias=j.data.alias_cdkey||'';
       lastAliasList=lastAlias?[lastAlias]:[];
       lastPairList=[];
-      show('单个生成成功\\n原CDKEY: '+c+'\\n二次CDKEY: '+lastAlias);
+      show('处理完成\\n原CDKEY: '+c+'\\n二次CDKEY: '+lastAlias+'\\n状态: '+((j.data&&j.data.created)===true?'新建':'已存在'));
     }
 
     async function doPairBatch(){
@@ -236,8 +305,8 @@ function adminHtml() {
       lastAliasList=lastPairList.map(v=>v.alias_cdkey);
       lastAlias=lastAliasList[0]||'';
 
-      const rows=lastPairList.map(v=>v.cdkey+' => '+v.alias_cdkey);
-      show('一对一批量生成成功\\n数量: '+lastPairList.length+'\\n\\n'+rows.join('\\n'));
+      const rows=lastPairList.map(v=>v.cdkey+' => '+v.alias_cdkey+' ['+(v.created?'新建':'已存在')+']');
+      show('一对一批量处理完成\\n数量: '+lastPairList.length+'\\n\\n'+rows.join('\\n'));
     }
 
     async function doLookup(){
@@ -304,8 +373,12 @@ export default {
         const body = await parseBody(request);
         assertAdminPassword(request, body, env);
         const realCdkey = requiredString(body.cdkey, "cdkey");
-        const alias = await storeAlias(env, realCdkey);
-        return json({ success: true, msg: "alias created", data: { alias_cdkey: alias } });
+        const result = await storeAlias(env, realCdkey);
+        return json({
+          success: true,
+          msg: result.created ? "alias created" : "alias exists",
+          data: { alias_cdkey: result.alias, created: result.created },
+        });
       }
 
       if (request.method === "POST" && url.pathname === "/v1/admin/alias/create-batch") {
@@ -315,15 +388,18 @@ export default {
         const countRaw = Number.parseInt(String(body.count || "1"), 10);
         const count = Math.max(1, Math.min(MAX_BATCH_COUNT, Number.isNaN(countRaw) ? 1 : countRaw));
 
-        const aliases = [];
-        for (let i = 0; i < count; i += 1) {
-          aliases.push(await storeAlias(env, realCdkey));
-        }
+        const result = await storeAlias(env, realCdkey);
+        const aliases = [result.alias];
 
         return json({
           success: true,
-          msg: "batch alias created",
-          data: { count: aliases.length, alias_cdkeys: aliases },
+          msg: result.created ? "alias created" : "alias exists",
+          data: {
+            count: aliases.length,
+            requested_count: count,
+            alias_cdkeys: aliases,
+            created: result.created,
+          },
         });
       }
 
@@ -348,14 +424,15 @@ export default {
 
         const pairs = [];
         for (const cdkey of cdkeys) {
-          const alias = await storeAlias(env, cdkey);
-          pairs.push({ cdkey, alias_cdkey: alias });
+          const result = await storeAlias(env, cdkey);
+          pairs.push({ cdkey, alias_cdkey: result.alias, created: result.created });
         }
+        const createdCount = pairs.filter((v) => v.created).length;
 
         return json({
           success: true,
-          msg: "pair batch created",
-          data: { count: pairs.length, pairs },
+          msg: "pair batch processed",
+          data: { count: pairs.length, created_count: createdCount, existing_count: pairs.length - createdCount, pairs },
         });
       }
 

@@ -91,7 +91,7 @@
   <body>
     <main class="panel">
       <h1>二次CDKEY隐藏管理页</h1>
-      <p class="hint">隐藏入口：/_hidden/alias-admin。输入管理密码后，可将原始CDKEY生成不重复的二次CDKEY。</p>
+      <p class="hint">隐藏入口：/_hidden/alias-admin。输入管理密码后，同一个原始CDKEY只会对应一个二次CDKEY。</p>
 
       <label for="password">管理密码</label>
       <input id="password" type="password" placeholder="请输入管理密码" autocomplete="off" />
@@ -155,7 +155,8 @@
           }
 
           lastAlias = payload.data?.alias_cdkey || "";
-          showResult(`生成成功\n原CDKEY: ${cdkey}\n二次CDKEY: ${lastAlias}`, true);
+          const created = payload.data?.created === true;
+          showResult(`处理完成\n原CDKEY: ${cdkey}\n二次CDKEY: ${lastAlias}\n状态: ${created ? "新建" : "已存在"}`, true);
         } catch (error) {
           showResult(error.message || "请求失败", false);
         } finally {

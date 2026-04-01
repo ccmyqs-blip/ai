@@ -107,6 +107,22 @@ function normalizeCdkey(cdkey) {
   return String(cdkey || "").trim();
 }
 
+function normalizeCdkeyForIndex(cdkey) {
+  return String(cdkey || "").trim().toUpperCase();
+}
+
+function findExistingAliasByCdkey(items, cdkey) {
+  const normalized = normalizeCdkeyForIndex(cdkey);
+  if (!normalized) return "";
+  for (const [alias, mapped] of Object.entries(items || {})) {
+    if (!mapped || typeof mapped !== "object") continue;
+    if (normalizeCdkeyForIndex(mapped.cdkey) === normalized) {
+      return alias;
+    }
+  }
+  return "";
+}
+
 async function callTarget(pathname, payload) {
   try {
     const response = await fetch(`${TARGET_API_BASE}${pathname}`, {
@@ -208,18 +224,24 @@ const server = http.createServer(async (req, res) => {
       assertAdminPassword(req, body);
       const realCdkey = requiredString(body.cdkey, "cdkey");
       const store = readStore();
-      const alias = generateAlias(store.items);
-      store.items[alias] = {
-        cdkey: realCdkey,
-        created_at: new Date().toISOString(),
-      };
-      writeStore(store);
+      let alias = findExistingAliasByCdkey(store.items, realCdkey);
+      let created = false;
+      if (!alias) {
+        alias = generateAlias(store.items);
+        store.items[alias] = {
+          cdkey: realCdkey,
+          created_at: new Date().toISOString(),
+        };
+        writeStore(store);
+        created = true;
+      }
 
       jsonResponse(res, 200, {
         success: true,
-        msg: "alias created",
+        msg: created ? "alias created" : "alias exists",
         data: {
           alias_cdkey: alias,
+          created,
         },
       });
       return;
