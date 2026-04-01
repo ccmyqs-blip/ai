@@ -4,55 +4,121 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>GPT CDKEY 套壳</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="shell-app">
-      <section class="intro">
-        <p class="eyebrow">GPT 账号 CDKEY 套壳</p>
-        <h1>ChatGPT Plus / 套壳礼包管理</h1>
-        <p>
-          通过封装后的界面查询 CDKEY 状态并激活。默认请求定向
-          <code>https://gpt.86gamestore.com/api</code>，可在
-          <code>config.js</code>（或直接在浏览器控制台）重写
-          <code>window.GPT_SHELL_CONFIG.apiBaseUrl</code>。
-        </p>
-      </section>
-
-      <section class="card">
-        <label for="cdkey-input">CDKEY（格式：XXXXX-XXXXX-XXXXX）</label>
-        <input id="cdkey-input" type="text" placeholder="请输入 CDKEY" maxlength="30" autocomplete="off" />
-        <div class="button-row">
-          <button id="check-button" type="button">查验状态</button>
-          <button id="activate-button" type="button">激活 CDKEY</button>
+    <div class="shell-pro">
+      <header class="shell-pro__header">
+        <div class="shell-pro__logo">
+          <span class="logo-mark">AI</span>
+          <div>
+            <strong>AI智能助手充值中心</strong>
+            <p>正规渠道 · 非零元购 · 不泄露帐号 · 零 风 险</p>
+          </div>
         </div>
-        <small class="hint">
-          CDKEY 查验与激活共用相同输入，激活时还需填入 GPT session 信息。
-        </small>
+        <div class="shell-pro__lang">
+          <button class="lang active">简体中文</button>
+          <button class="lang">English</button>
+        </div>
+      </header>
+
+      <section class="shell-pro__hero">
+        <div class="hero__content">
+          <p class="eyebrow">零封号 · 极速激活</p>
+          <h1>卡密查验 &amp; 激活一站式体验</h1>
+          <p>
+            直连 GPT 官方 /api 检测与激活接口，实时返回状态、冷却、地图提示。前端可
+            直接调用，也支持自定义代理，适用于 GitHub Pages + 自定义域场景。
+          </p>
+          <div class="hero__badges">
+            <span>无需上号</span>
+            <span>不封号</span>
+            <span>零风险</span>
+          </div>
+        </div>
+        <div class="hero__steps">
+          <article>
+            <p class="step-index">1</p>
+            <h3>卡密查验</h3>
+            <p>输入 CDKEY 立即验证 use_status、status_hint、冷却状态，高频检测也能奔溃。</p>
+          </article>
+          <article>
+            <p class="step-index">2</p>
+            <h3>提交 Session</h3>
+            <p>支持 JSON 格式的 session_info，保证 planType 为 free，前端可复制 / 粘贴。</p>
+          </article>
+          <article>
+            <p class="step-index">3</p>
+            <h3>立即激活</h3>
+            <p>请求 /api/activate，返回成功信息或详细错误原因，方便快速复用已有记录。</p>
+          </article>
+        </div>
       </section>
 
-      <section class="card">
-        <label for="session-info">session_info（JSON 字符串）</label>
-        <textarea id="session-info" rows="6" placeholder='{"account":{"id":"user-xxx","planType":"free"},"accessToken":"ey...","user":{"email":"test@example.com"}}'></textarea>
-        <small class="hint">
-          仅支持 <code>planType:"free"</code>，其他 plan 会被拒绝。填写后点击“激活 CDKEY”。
-        </small>
+      <section class="shell-pro__form">
+        <div class="form-card">
+          <label for="cdkey-input">请输入卡密</label>
+          <input id="cdkey-input" type="text" placeholder="XXXXX-XXXXX-XXXXX" maxlength="30" autocomplete="off" />
+          <div class="button-row">
+            <button id="check-button" type="button">立即验证</button>
+            <button id="activate-button" type="button">开始激活</button>
+          </div>
+        </div>
+        <div class="form-card form-card--secondary">
+          <label for="session-info">session_info（JSON）</label>
+          <textarea
+            id="session-info"
+            rows="5"
+            placeholder='{"account":{"id":"user-xxx","planType":"free"},"accessToken":"ey...","user":{"email":"test@example.com"}}'
+          ></textarea>
+          <p class="note">仅支持 planType:"free"，其他 plan 会被拒绝。若 token 过期，先获取最新。</p>
+        </div>
       </section>
 
-      <section class="results" aria-live="polite">
-        <div class="result-card">
+      <section class="shell-pro__status">
+        <article>
           <h2>查验结果</h2>
           <pre id="check-result">尚未请求</pre>
-        </div>
-        <div class="result-card">
+        </article>
+        <article>
           <h2>激活结果</h2>
           <pre id="activate-result">尚未请求</pre>
+        </article>
+      </section>
+
+      <section class="shell-pro__tips">
+        <h3>操作小贴士</h3>
+        <div class="tips-grid">
+          <div>
+            <strong>JSON 示例</strong>
+            <p>
+              {<br />
+              &nbsp;&nbsp;"account": { "id": "user-xxx", "planType": "free" },<br />
+              &nbsp;&nbsp;"accessToken": "ey...",<br />
+              &nbsp;&nbsp;"user": { "email": "test@example.com" }<br />
+              }
+            </p>
+          </div>
+          <div>
+            <strong>确认登录状态</strong>
+            <p>请先在 chatgpt.com 登录账户，然后填入 JSON（accessToken 需有效）。</p>
+          </div>
+          <div>
+            <strong>冷却机制</strong>
+            <p>若 in_cooldown=true，请等待 cooldown_remaining 秒后再尝试激活。</p>
+          </div>
         </div>
       </section>
-    </main>
+    </div>
 
-    <footer>
-      <small>由套壳前端直接调用 gpt.86gamestore.com 提供的 /api/check、/api/activate 接口。</small>
+    <footer class="shell-pro__footer">
+      <p>默认直连 gpt.86gamestore.com/api，若需代理，请在 HTML 先设置 window.GPT_SHELL_CONFIG。</p>
     </footer>
 
     <script type="module" src="app.js"></script>

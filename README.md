@@ -1,6 +1,6 @@
 ﻿# GPT CDKEY 套壳前端
 
-一个纯前端静态页面，封装 `https://gpt.86gamestore.com/api/check` 和 `/api/activate`，方便输入 CDKEY 并查验/激活。页面结构简单，可直接部署在任意静态托管服务（Vercel、GitHub Pages、静态代理等）。
+一个纯前端静态页面，封装 `https://gpt.86gamestore.com/api/check` 和 `/api/activate`，方便输入 CDKEY 并查验/激活。页面结构简单，可直接部署在任意静态托管服务（Vercel、GitHub Pages、静态代理等）。界面参考了 https://8733ai.vip/ 的深色蓝紫风格，包含三步骤说明、卡片输入区与提示区域，适合在 GitHub Pages + 自定义域场景中直接使用。
 
 ## 使用方式
 
@@ -15,8 +15,8 @@
      ```
      或者使用 `live-server`、`http-server`、`python -m http.server` 等。
 3. **操作流程**：
-   - 在“CDKEY”输入框填写完整的密钥，点击“查验状态”可查看 `use_status`、`status_hint`、冷却信息等。
-   - 如果要激活，填写 `session_info`（必须是 JSON 字符串，`planType` 只能是 `"free"`），再点击“激活 CDKEY”。
+   - 在“卡密”输入框填写完整的密钥，点击“立即验证”可查看 `use_status`、`status_hint`、冷却信息等。
+   - 如果要激活，填写 `session_info`（必须是 JSON 字符串，`planType` 只能是 `"free"`），再点击“开始激活”。
    - 结果会在下方分别呈现，所有错误信息会原样显示 `msg` 内容。
 
 ## 自定义配置
@@ -37,3 +37,9 @@ https://gpt.86gamestore.com/api
 
 - 将此目录推送到任意支持 HTTPS 的静态站点，或作为前端模块集成到现有项目。前端本身不包含任何后端逻辑，所有请求都原样转发到 GPT 接口。
 - 若需隐藏 `session_info`，建议在后端存储并只返回临时 token，再让前端调用代理接口（后端再调用 `/activate`）。
+
+## 小贴士
+
+- 页面内置 JSON 示例与登录提醒，有助于快速填充 `session_info`。
+- 若你希望调整配色或按钮样式，只需编辑 `styles.css` 中的 `.shell-pro__hero`、`.form-card`、`button` 等样式。
+- 页面底部会展示调用来源提示，方便用户确认 API 归属。
