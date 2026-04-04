@@ -202,19 +202,20 @@ function revealActivateResult() {
 
 function formatDisplayText(payload) {
   if (!payload || typeof payload !== "object") return formatPayloadText(payload);
+  const aliasCdkey = normalizeCdkey(payload?.data?.alias_cdkey);
 
   if (payload.success === false) {
     const msg = String(payload.msg || "").trim();
-    if (msg) return msg;
+    if (msg) return replaceOriginalCdkeyWithAlias(msg, aliasCdkey);
     return text("notFoundCdkey");
   }
 
   const targetResult = payload?.data?.target_result;
   if (targetResult && typeof targetResult === "object") {
-    return formatPayloadText(targetResult);
+    return replaceOriginalCdkeyWithAlias(formatPayloadText(targetResult), aliasCdkey);
   }
 
-  return formatPayloadText(payload);
+  return replaceOriginalCdkeyWithAlias(formatPayloadText(payload), aliasCdkey);
 }
 
 function formatPayloadText(payload) {
@@ -245,6 +246,23 @@ function collectPayloadTextValues(value, lines) {
   const normalized = value.trim();
   if (!normalized) return;
   if (!lines.includes(normalized)) lines.push(normalized);
+}
+
+function normalizeCdkey(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function replaceOriginalCdkeyWithAlias(content, aliasCdkey) {
+  const alias = normalizeCdkey(aliasCdkey);
+  if (!alias) return content;
+  const raw = String(content || "");
+  const cdkeyPattern = /\b[A-Z0-9]{4,6}(?:-[A-Z0-9]{4,6}){2,4}\b/gi;
+  return raw.replace(cdkeyPattern, (matched) => {
+    const normalized = normalizeCdkey(matched);
+    if (!normalized) return matched;
+    if (normalized === alias) return alias;
+    return alias;
+  });
 }
 
 function text(key) {
