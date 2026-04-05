@@ -13,10 +13,11 @@ const ADMIN_PAGE_FILE = path.join(__dirname, "admin.html");
 const ALIAS_SEGMENTS = [4, 5, 4, 4];
 const ALIAS_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+const REAL_CDKEY_INDEX_PREFIX = "REAL::";
 
 function ensureStoreFile() {
   if (!fs.existsSync(STORE_FILE)) {
-    fs.writeFileSync(STORE_FILE, JSON.stringify({ items: {} }, null, 2));
+    fs.writeFileSync(STORE_FILE, JSON.stringify({ items: {}, index: {} }, null, 2));
   }
 }
 
@@ -24,10 +25,9 @@ function readStore() {
   ensureStoreFile();
   const raw = fs.readFileSync(STORE_FILE, "utf8").replace(/^\uFEFF/, "");
   const parsed = JSON.parse(raw || "{}");
-  if (!parsed.items || typeof parsed.items !== "object") {
-    return { items: {} };
-  }
-  return parsed;
+  const items = parsed.items && typeof parsed.items === "object" ? parsed.items : {};
+  const index = parsed.index && typeof parsed.index === "object" ? parsed.index : {};
+  return { items, index };
 }
 
 function writeStore(store) {
@@ -120,16 +120,82 @@ function normalizeCdkeyForIndex(cdkey) {
   return String(cdkey || "").trim().toUpperCase();
 }
 
-function findExistingAliasByCdkey(items, cdkey) {
-  const normalized = normalizeCdkeyForIndex(cdkey);
-  if (!normalized) return "";
-  for (const [alias, mapped] of Object.entries(items || {})) {
-    if (!mapped || typeof mapped !== "object") continue;
-    if (normalizeCdkeyForIndex(mapped.cdkey) === normalized) {
-      return alias;
+function realCdkeyIndexKey(cdkey) {
+  return `${REAL_CDKEY_INDEX_PREFIX}${normalizeCdkeyForIndex(cdkey)}`;
+}
+
+function optionalString(value) {
+  return String(value || "").trim();
+}
+
+function normalizeReindexLimit(value) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  if (Number.isNaN(parsed)) return 20;
+  return Math.max(1, Math.min(40, parsed));
+}
+
+function resolveIndexedAlias(store, cdkey) {
+  const reverseKey = realCdkeyIndexKey(cdkey);
+  const alias = normalizeAlias(store.index[reverseKey] || "");
+  if (!alias || !ALIAS_PATTERN.test(alias)) return "";
+  const mapped = store.items[alias];
+  if (!mapped || normalizeCdkeyForIndex(mapped.cdkey) !== normalizeCdkeyForIndex(cdkey)) {
+    delete store.index[reverseKey];
+    return "";
+  }
+  return alias;
+}
+
+function storeAliasWithIndex(store, realCdkey) {
+  const reverseKey = realCdkeyIndexKey(realCdkey);
+  const indexedAlias = resolveIndexedAlias(store, realCdkey);
+  if (indexedAlias) {
+    return { alias: indexedAlias, created: false };
+  }
+
+  const alias = generateAlias(store.items);
+  const cdkeyTrimmed = String(realCdkey || "").trim();
+  const normalizedCdkey = normalizeCdkeyForIndex(cdkeyTrimmed);
+  store.items[alias] = {
+    cdkey: cdkeyTrimmed,
+    cdkey_normalized: normalizedCdkey,
+    created_at: new Date().toISOString(),
+  };
+  store.index[reverseKey] = alias;
+  return { alias, created: true };
+}
+
+function reindexStore(store, cursorRaw, limitRaw) {
+  const cursorParsed = Number.parseInt(optionalString(cursorRaw) || "0", 10);
+  const cursor = Number.isNaN(cursorParsed) ? 0 : Math.max(0, cursorParsed);
+  const limit = normalizeReindexLimit(limitRaw);
+
+  const aliasKeys = Object.keys(store.items)
+    .filter((alias) => ALIAS_PATTERN.test(alias))
+    .sort();
+  const page = aliasKeys.slice(cursor, cursor + limit);
+
+  let processed = 0;
+  let fixed = 0;
+  for (const alias of page) {
+    const mapped = store.items[alias];
+    if (!mapped || !mapped.cdkey) continue;
+    processed += 1;
+    const reverseKey = realCdkeyIndexKey(mapped.cdkey);
+    if (store.index[reverseKey] !== alias) {
+      store.index[reverseKey] = alias;
+      fixed += 1;
     }
   }
-  return "";
+
+  const nextCursorNum = cursor + page.length;
+  const done = nextCursorNum >= aliasKeys.length;
+  return {
+    processed,
+    fixed,
+    next_cursor: done ? "" : String(nextCursorNum),
+    done,
+  };
 }
 
 async function callTarget(pathname, payload) {
@@ -233,25 +299,32 @@ const server = http.createServer(async (req, res) => {
       assertAdminPassword(req, body);
       const realCdkey = requiredString(body.cdkey, "cdkey");
       const store = readStore();
-      let alias = findExistingAliasByCdkey(store.items, realCdkey);
-      let created = false;
-      if (!alias) {
-        alias = generateAlias(store.items);
-        store.items[alias] = {
-          cdkey: realCdkey,
-          created_at: new Date().toISOString(),
-        };
-        writeStore(store);
-        created = true;
-      }
+      const result = storeAliasWithIndex(store, realCdkey);
+      writeStore(store);
 
       jsonResponse(res, 200, {
         success: true,
-        msg: created ? "alias created" : "alias exists",
+        msg: result.created ? "alias created" : "alias exists",
         data: {
-          alias_cdkey: alias,
-          created,
+          alias_cdkey: result.alias,
+          created: result.created,
         },
+      });
+      return;
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/v1/admin/alias/reindex") {
+      const body = await parseJsonBody(req);
+      assertAdminPassword(req, body);
+
+      const store = readStore();
+      const data = reindexStore(store, body.cursor, body.limit);
+      writeStore(store);
+
+      jsonResponse(res, 200, {
+        success: true,
+        msg: "reindex ok",
+        data,
       });
       return;
     }

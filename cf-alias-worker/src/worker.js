@@ -2,6 +2,8 @@
 const ALIAS_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 const REAL_CDKEY_INDEX_PREFIX = "REAL::";
+const REINDEX_DEFAULT_LIMIT = 20;
+const REINDEX_MAX_LIMIT = 40;
 const MAX_BATCH_COUNT = 100;
 const MAX_PAIR_COUNT = 500;
 
@@ -48,6 +50,17 @@ function requiredString(v, name) {
   return out;
 }
 
+function optionalString(v) {
+  const out = String(v || "").trim();
+  return out || "";
+}
+
+function normalizeReindexLimit(v) {
+  const parsed = Number.parseInt(String(v || ""), 10);
+  if (Number.isNaN(parsed)) return REINDEX_DEFAULT_LIMIT;
+  return Math.max(1, Math.min(REINDEX_MAX_LIMIT, parsed));
+}
+
 function normalizeForceValue(v) {
   if (typeof v === "boolean") return v ? 1 : 0;
   if (typeof v === "number") return v > 0 ? 1 : 0;
@@ -89,56 +102,16 @@ async function generateUniqueAlias(env) {
   throw new Error("无法生成不重复二次CDKEY");
 }
 
-async function getMappedCdkeyByAlias(env, alias) {
-  const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
-  if (!mapped || typeof mapped !== "object" || !mapped.cdkey) return "";
-  return String(mapped.cdkey).trim();
-}
-
-async function findExistingAliasByRealCdkey(env, realCdkey) {
-  const normalizedCdkey = normalizeRealCdkey(realCdkey);
-  if (!normalizedCdkey) return "";
-  const reverseKey = realCdkeyIndexKey(normalizedCdkey);
-
-  const indexedAlias = normalizeAlias(await env.ALIAS_MAP.get(reverseKey));
-  if (indexedAlias) {
-    const indexedCdkey = await getMappedCdkeyByAlias(env, indexedAlias);
-    if (normalizeRealCdkey(indexedCdkey) === normalizedCdkey) {
-      return indexedAlias;
-    }
-    // Reverse index may get stale when data is adjusted manually.
-    await env.ALIAS_MAP.delete(reverseKey);
-  }
-
-  let cursor;
-  do {
-    const listed = await env.ALIAS_MAP.list({ cursor, limit: 1000 });
-    for (const key of listed.keys || []) {
-      const alias = String(key?.name || "");
-      if (!ALIAS_PATTERN.test(alias)) continue;
-      const mappedCdkey = await getMappedCdkeyByAlias(env, alias);
-      if (normalizeRealCdkey(mappedCdkey) === normalizedCdkey) {
-        await env.ALIAS_MAP.put(reverseKey, alias);
-        return alias;
-      }
-    }
-    cursor = listed.list_complete ? undefined : listed.cursor;
-  } while (cursor);
-
-  return "";
-}
-
 async function storeAlias(env, realCdkey) {
   const normalizedCdkey = normalizeRealCdkey(realCdkey);
   const reverseKey = realCdkeyIndexKey(normalizedCdkey);
-  const existingAlias = await findExistingAliasByRealCdkey(env, normalizedCdkey);
-  if (existingAlias) {
-    return { alias: existingAlias, created: false };
-  }
-
-  const recheckedAlias = normalizeAlias(await env.ALIAS_MAP.get(reverseKey));
-  if (recheckedAlias) {
-    return { alias: recheckedAlias, created: false };
+  const indexedAlias = normalizeAlias(await env.ALIAS_MAP.get(reverseKey));
+  if (indexedAlias && ALIAS_PATTERN.test(indexedAlias)) {
+    const mapped = await env.ALIAS_MAP.get(indexedAlias, { type: "json" });
+    if (mapped && normalizeRealCdkey(mapped.cdkey) === normalizedCdkey) {
+      return { alias: indexedAlias, created: false };
+    }
+    await env.ALIAS_MAP.delete(reverseKey);
   }
 
   const alias = await generateUniqueAlias(env);
@@ -153,6 +126,34 @@ async function storeAlias(env, realCdkey) {
   );
   await env.ALIAS_MAP.put(reverseKey, alias);
   return { alias, created: true };
+}
+
+async function reindexAliasMappings(env, cursorRaw, limitRaw) {
+  const cursor = optionalString(cursorRaw);
+  const limit = normalizeReindexLimit(limitRaw);
+  const listed = await env.ALIAS_MAP.list(cursor ? { cursor, limit } : { limit });
+
+  let processed = 0;
+  let fixed = 0;
+  for (const key of listed.keys || []) {
+    const alias = String(key?.name || "");
+    if (!ALIAS_PATTERN.test(alias)) continue;
+    processed += 1;
+
+    const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
+    if (!mapped || typeof mapped !== "object" || !mapped.cdkey) continue;
+
+    const normalizedCdkey = normalizeRealCdkey(mapped.cdkey);
+    if (!normalizedCdkey) continue;
+
+    const reverseKey = realCdkeyIndexKey(normalizedCdkey);
+    await env.ALIAS_MAP.put(reverseKey, alias);
+    fixed += 1;
+  }
+
+  const done = Boolean(listed.list_complete);
+  const nextCursor = done ? "" : String(listed.cursor || "");
+  return { processed, fixed, next_cursor: nextCursor, done };
 }
 
 function parseCdkeyLines(text) {
@@ -239,6 +240,10 @@ function adminHtml() {
       <button id="pairBatch">一对一批量生成</button>
       <button id="copyPair" class="secondary">复制映射列表</button>
     </div>
+    <div class="row" style="margin-top:10px">
+      <button id="reindexAll">修复历史索引</button>
+      <button id="noop" class="secondary" disabled>索引分页默认 20</button>
+    </div>
 
     <label>查询：二次CDKEY -> 原CDKEY</label>
     <div class="row">
@@ -306,6 +311,10 @@ function adminHtml() {
         .filter(Boolean);
       if(!lines.length){show('请先输入原始CDKEY列表');return;}
 
+      show('批量前修复历史索引中...');
+      const ready=await runReindexFlow(false);
+      if(!ready) return;
+
       show('一对一批量生成中...');
       const j=await request('/v1/admin/alias/create-from-list',{cdkeys:lines});
       if(!j) return;
@@ -316,6 +325,40 @@ function adminHtml() {
 
       const rows=lastPairList.map(v=>v.cdkey+' => '+v.alias_cdkey+' ['+(v.created?'新建':'已存在')+']');
       show('一对一批量处理完成\\n数量: '+lastPairList.length+'\\n\\n'+rows.join('\\n'));
+    }
+
+    async function runReindexFlow(manual){
+      let cursor='';
+      let rounds=0;
+      let processedTotal=0;
+      let fixedTotal=0;
+      while(true){
+        rounds+=1;
+        const payload={limit:20};
+        if(cursor) payload.cursor=cursor;
+
+        const j=await request('/v1/admin/alias/reindex',payload);
+        if(!j) return false;
+
+        const data=j.data||{};
+        processedTotal+=Number(data.processed||0);
+        fixedTotal+=Number(data.fixed||0);
+        cursor=String(data.next_cursor||'').trim();
+        const done=data.done===true;
+
+        if(done){
+          const title=manual?'历史索引修复完成':'批量前索引预处理完成';
+          show(title+'\\n轮次: '+rounds+'\\n扫描: '+processedTotal+'\\n修复: '+fixedTotal);
+          return true;
+        }
+
+        show((manual?'历史索引修复中...':'批量前索引预处理中...')+'\\n轮次: '+rounds+'\\n扫描: '+processedTotal+'\\n修复: '+fixedTotal);
+
+        if(rounds>=5000){
+          show('索引修复中止：轮次过多，请稍后重试');
+          return false;
+        }
+      }
     }
 
     async function doLookup(){
@@ -331,6 +374,7 @@ function adminHtml() {
     document.getElementById('create').onclick=()=>doCreate(false);
     document.getElementById('batch').onclick=()=>doCreate(true);
     document.getElementById('pairBatch').onclick=doPairBatch;
+    document.getElementById('reindexAll').onclick=()=>runReindexFlow(true);
     document.getElementById('lookup').onclick=doLookup;
 
     document.getElementById('copy').onclick=async()=>{
@@ -467,6 +511,13 @@ export default {
             created_at: mapped.created_at || "",
           },
         });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/admin/alias/reindex") {
+        const body = await parseBody(request);
+        assertAdminPassword(request, body, env);
+        const data = await reindexAliasMappings(env, body.cursor, body.limit);
+        return json({ success: true, msg: "reindex ok", data });
       }
 
       if (request.method === "POST" && url.pathname === "/v1/alias/check") {
