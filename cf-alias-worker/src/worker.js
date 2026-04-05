@@ -260,12 +260,21 @@ function adminHtml() {
   </main>
 
   <script>
+    const REINDEX_DONE_KEY='alias_reindex_done';
     let lastAlias='';
     let lastAliasList=[];
     let lastPairList=[];
     const res=document.getElementById('res');
 
     function show(t){res.textContent=t;}
+
+    function getReindexDone(){
+      try{return sessionStorage.getItem(REINDEX_DONE_KEY)==='1';}catch{return false;}
+    }
+
+    function setReindexDone(){
+      try{sessionStorage.setItem(REINDEX_DONE_KEY,'1');}catch{}
+    }
 
     async function request(path, payload){
       const p=document.getElementById('pwd').value.trim();
@@ -311,9 +320,12 @@ function adminHtml() {
         .filter(Boolean);
       if(!lines.length){show('请先输入原始CDKEY列表');return;}
 
-      show('批量前修复历史索引中...');
-      const ready=await runReindexFlow(false);
-      if(!ready) return;
+      if(!getReindexDone()){
+        show('批量前修复历史索引中...');
+        const ready=await runReindexFlow(false);
+        if(!ready) return;
+        setReindexDone();
+      }
 
       show('一对一批量生成中...');
       const j=await request('/v1/admin/alias/create-from-list',{cdkeys:lines});
@@ -374,7 +386,10 @@ function adminHtml() {
     document.getElementById('create').onclick=()=>doCreate(false);
     document.getElementById('batch').onclick=()=>doCreate(true);
     document.getElementById('pairBatch').onclick=doPairBatch;
-    document.getElementById('reindexAll').onclick=()=>runReindexFlow(true);
+    document.getElementById('reindexAll').onclick=async()=>{
+      const ok=await runReindexFlow(true);
+      if(ok) setReindexDone();
+    };
     document.getElementById('lookup').onclick=doLookup;
 
     document.getElementById('copy').onclick=async()=>{
