@@ -2,6 +2,7 @@
 const ALIAS_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 const REAL_CDKEY_INDEX_PREFIX = "REAL::";
+const SYSTEM_REINDEX_DONE_KEY = "SYSTEM::REINDEX_DONE";
 const REINDEX_DEFAULT_LIMIT = 20;
 const REINDEX_MAX_LIMIT = 40;
 const MAX_BATCH_COUNT = 100;
@@ -156,6 +157,22 @@ async function reindexAliasMappings(env, cursorRaw, limitRaw) {
   return { processed, fixed, next_cursor: nextCursor, done };
 }
 
+async function getReindexDoneStatus(env) {
+  const raw = await env.ALIAS_MAP.get(SYSTEM_REINDEX_DONE_KEY, { type: "json" });
+  if (!raw || typeof raw !== "object") return { done: false, updated_at: "" };
+  return {
+    done: raw.done === true,
+    updated_at: String(raw.updated_at || "").trim(),
+  };
+}
+
+async function markReindexDone(env) {
+  await env.ALIAS_MAP.put(
+    SYSTEM_REINDEX_DONE_KEY,
+    JSON.stringify({ done: true, updated_at: new Date().toISOString() })
+  );
+}
+
 function parseCdkeyLines(text) {
   return String(text || "")
     .split(/\r?\n/)
@@ -260,21 +277,12 @@ function adminHtml() {
   </main>
 
   <script>
-    const REINDEX_DONE_KEY='alias_reindex_done';
     let lastAlias='';
     let lastAliasList=[];
     let lastPairList=[];
     const res=document.getElementById('res');
 
     function show(t){res.textContent=t;}
-
-    function getReindexDone(){
-      try{return sessionStorage.getItem(REINDEX_DONE_KEY)==='1';}catch{return false;}
-    }
-
-    function setReindexDone(){
-      try{sessionStorage.setItem(REINDEX_DONE_KEY,'1');}catch{}
-    }
 
     async function request(path, payload){
       const p=document.getElementById('pwd').value.trim();
@@ -283,6 +291,12 @@ function adminHtml() {
       const j=await r.json();
       if(!r.ok||j.success!==true){show(j.msg||'操作失败'); return null;}
       return j;
+    }
+
+    async function getGlobalReindexDoneStatus(){
+      const j=await request('/v1/admin/alias/reindex-status',{});
+      if(!j) return null;
+      return (j.data&&j.data.done)===true;
     }
 
     async function doCreate(batchMode){
@@ -320,11 +334,12 @@ function adminHtml() {
         .filter(Boolean);
       if(!lines.length){show('请先输入原始CDKEY列表');return;}
 
-      if(!getReindexDone()){
+      const reindexDone=await getGlobalReindexDoneStatus();
+      if(reindexDone===null) return;
+      if(!reindexDone){
         show('批量前修复历史索引中...');
         const ready=await runReindexFlow(false);
         if(!ready) return;
-        setReindexDone();
       }
 
       show('一对一批量生成中...');
@@ -387,8 +402,7 @@ function adminHtml() {
     document.getElementById('batch').onclick=()=>doCreate(true);
     document.getElementById('pairBatch').onclick=doPairBatch;
     document.getElementById('reindexAll').onclick=async()=>{
-      const ok=await runReindexFlow(true);
-      if(ok) setReindexDone();
+      await runReindexFlow(true);
     };
     document.getElementById('lookup').onclick=doLookup;
 
@@ -532,7 +546,17 @@ export default {
         const body = await parseBody(request);
         assertAdminPassword(request, body, env);
         const data = await reindexAliasMappings(env, body.cursor, body.limit);
+        if (data.done) {
+          await markReindexDone(env);
+        }
         return json({ success: true, msg: "reindex ok", data });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/admin/alias/reindex-status") {
+        const body = await parseBody(request);
+        assertAdminPassword(request, body, env);
+        const data = await getReindexDoneStatus(env);
+        return json({ success: true, msg: "ok", data });
       }
 
       if (request.method === "POST" && url.pathname === "/v1/alias/check") {
