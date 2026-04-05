@@ -261,6 +261,7 @@ function adminHtml() {
       <button id="reindexAll">修复历史索引</button>
       <button id="noop" class="secondary" disabled>索引分页默认 20</button>
     </div>
+    <p>低写入模式：批量生成不会自动修复历史索引；历史老CDKEY如需补索引，请手动点击“修复历史索引”。</p>
 
     <label>查询：二次CDKEY -> 原CDKEY</label>
     <div class="row">
@@ -291,12 +292,6 @@ function adminHtml() {
       const j=await r.json();
       if(!r.ok||j.success!==true){show(j.msg||'操作失败'); return null;}
       return j;
-    }
-
-    async function getGlobalReindexDoneStatus(){
-      const j=await request('/v1/admin/alias/reindex-status',{});
-      if(!j) return null;
-      return (j.data&&j.data.done)===true;
     }
 
     async function doCreate(batchMode){
@@ -333,14 +328,6 @@ function adminHtml() {
         .map(v=>v.trim())
         .filter(Boolean);
       if(!lines.length){show('请先输入原始CDKEY列表');return;}
-
-      const reindexDone=await getGlobalReindexDoneStatus();
-      if(reindexDone===null) return;
-      if(!reindexDone){
-        show('批量前修复历史索引中...');
-        const ready=await runReindexFlow(false);
-        if(!ready) return;
-      }
 
       show('一对一批量生成中...');
       const j=await request('/v1/admin/alias/create-from-list',{cdkeys:lines});
