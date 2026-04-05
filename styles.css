@@ -206,6 +206,21 @@ body {
   min-height: 160px;
 }
 
+.option-check {
+  margin-top: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #d6dcff;
+  font-size: 0.95rem;
+}
+
+.option-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #38bdf8;
+}
+
 .auth-actions {
   margin-top: 0.8rem;
   display: grid;

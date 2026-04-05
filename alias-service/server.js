@@ -107,6 +107,15 @@ function normalizeCdkey(cdkey) {
   return String(cdkey || "").trim();
 }
 
+function normalizeForceValue(value) {
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (typeof value === "number") return value > 0 ? 1 : 0;
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return 0;
+  if (text === "1" || text === "true" || text === "yes" || text === "on") return 1;
+  return 0;
+}
+
 function normalizeCdkeyForIndex(cdkey) {
   return String(cdkey || "").trim().toUpperCase();
 }
@@ -286,6 +295,7 @@ const server = http.createServer(async (req, res) => {
       const body = await parseJsonBody(req);
       const alias = normalizeAlias(requiredString(body.alias_cdkey, "alias_cdkey"));
       const sessionInfo = requiredString(body.session_info, "session_info");
+      const force = normalizeForceValue(body.force);
 
       if (!ALIAS_PATTERN.test(alias)) {
         throw new Error("alias_cdkey format invalid.");
@@ -305,6 +315,7 @@ const server = http.createServer(async (req, res) => {
       const result = await callTarget("/activate", {
         cdkey: normalizeCdkey(mapped.cdkey),
         session_info: sessionInfo,
+        force,
       });
       const targetMsg = unwrapTargetMessage(result.body);
 

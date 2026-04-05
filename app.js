@@ -22,6 +22,7 @@ const localeText = {
     checkButton: "立即验证",
     activateButton: "开始激活",
     sessionLabel: "session_info（JSON）",
+    forceRechargeLabel: "放弃剩余会员时间，强制充值",
     sessionPlaceholder:
       '{"account":{"id":"user-xxx","planType":"free"},"accessToken":"ey...","user":{"email":"test@example.com"}}',
     checkResultTitle: "查验结果",
@@ -55,6 +56,7 @@ const localeText = {
     checkButton: "Verify",
     activateButton: "Activate",
     sessionLabel: "session_info (JSON)",
+    forceRechargeLabel: "Force recharge (forfeit remaining time)",
     sessionPlaceholder:
       '{"account":{"id":"user-xxx","planType":"free"},"accessToken":"ey...","user":{"email":"test@example.com"}}',
     checkResultTitle: "Verification Result",
@@ -81,6 +83,7 @@ const checkResult = document.getElementById("check-result");
 const activateResult = document.getElementById("activate-result");
 const checkResultCard = document.getElementById("check-result-card");
 const activateResultCard = document.getElementById("activate-result-card");
+const forceRechargeInput = document.getElementById("force-recharge");
 const langButtons = Array.from(document.querySelectorAll(".lang"));
 
 let currentLang = "zh";
@@ -119,6 +122,7 @@ async function triggerCheck() {
 async function triggerActivate() {
   const aliasCdkey = cdkeyInput.value.trim();
   const sessionInfo = sessionInput.value.trim();
+  const forceRecharge = forceRechargeInput?.checked === true;
   revealActivateResult();
 
   if (!aliasCdkey) {
@@ -146,6 +150,7 @@ async function triggerActivate() {
     const payload = await postAlias("activate", {
       alias_cdkey: aliasCdkey,
       session_info: sessionInfo,
+      force: forceRecharge ? 1 : 0,
     });
     activateRequested = true;
     renderResult(activateResult, formatDisplayText(payload), !payload?.success);

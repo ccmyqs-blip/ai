@@ -48,6 +48,15 @@ function requiredString(v, name) {
   return out;
 }
 
+function normalizeForceValue(v) {
+  if (typeof v === "boolean") return v ? 1 : 0;
+  if (typeof v === "number") return v > 0 ? 1 : 0;
+  const text = String(v || "").trim().toLowerCase();
+  if (!text) return 0;
+  if (text === "1" || text === "true" || text === "yes" || text === "on") return 1;
+  return 0;
+}
+
 function getAdminPassword(request, body) {
   const fromHeader = (request.headers.get("X-Admin-Password") || "").trim();
   if (fromHeader) return fromHeader;
@@ -480,6 +489,7 @@ export default {
         const body = await parseBody(request);
         const alias = normalizeAlias(requiredString(body.alias_cdkey, "alias_cdkey"));
         const sessionInfo = requiredString(body.session_info, "session_info");
+        const force = normalizeForceValue(body.force);
         if (!ALIAS_PATTERN.test(alias)) return json({ success: false, msg: "未检测到CDKEY", data: "" });
 
         const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
@@ -488,6 +498,7 @@ export default {
         const targetResult = await callTarget(env, "/activate", {
           cdkey: String(mapped.cdkey).trim(),
           session_info: sessionInfo,
+          force,
         });
         return json({
           success: Boolean(targetResult && targetResult.success),

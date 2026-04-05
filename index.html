@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=20260401a" />
+    <link rel="stylesheet" href="styles.css?v=20260405a" />
   </head>
   <body>
     <div class="shell-pro">
@@ -72,6 +72,10 @@
             data-i18n-placeholder="sessionPlaceholder"
             placeholder='{"account":{"id":"user-xxx","planType":"free"},"accessToken":"ey...","user":{"email":"test@example.com"}}'
           ></textarea>
+          <label class="option-check" for="force-recharge">
+            <input id="force-recharge" type="checkbox" />
+            <span data-i18n="forceRechargeLabel">放弃剩余会员时间，强制充值</span>
+          </label>
           <div class="auth-actions">
             <a
               class="action-link"
@@ -110,6 +114,6 @@
         aliasApiBaseUrl: "https://alias-service.ccmyqs.workers.dev/v1/alias"
       };
     </script>
-    <script type="module" src="app.js?v=20260401b"></script>
+    <script type="module" src="app.js?v=20260405a"></script>
   </body>
 </html>
