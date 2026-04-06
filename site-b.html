@@ -1,157 +1,204 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ChatGPT 礼品兑换中心</title>
+    <title>GPT 礼包兑换向导</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="site-b.css?v=20260406a" />
+    <link rel="stylesheet" href="site-b.css?v=20260406b" />
   </head>
   <body>
-    <div class="receipt-shell">
-      <header class="receipt-topbar">
+    <div class="wizard-shell">
+      <header class="wizard-topbar">
         <div>
-          <h1 data-i18n="brandTitle">ChatGPT 礼品兑换中心</h1>
-          <p data-i18n="heroSubline">安全、快速、独立的账号兑换服务</p>
+          <p class="eyebrow" data-i18n="eyebrow">Smart Redeem Workflow</p>
+          <h1 data-i18n="brandTitle">GPT 礼包兑换向导</h1>
+          <p class="subline" data-i18n="heroSubline">按顺序完成 4 步，减少误操作，结果实时返回。</p>
         </div>
         <div class="topbar-actions">
           <div class="lang-switch">
             <button class="lang active" type="button" data-lang="zh">中</button>
             <button class="lang" type="button" data-lang="en">EN</button>
           </div>
-          <button id="theme-toggle" class="mode-toggle" type="button" aria-label="切换主题">
-            ◐
-          </button>
         </div>
       </header>
 
-      <main class="receipt-layout">
-        <aside class="guide-card">
-          <div class="section-head">
-            <h2 data-i18n="guideTitle">操作向导</h2>
-            <p data-i18n="guideIntro">按顺序完成验证与兑换，提交后请耐心等待返回结果。</p>
+      <section class="wizard-progress" aria-label="progress">
+        <button class="progress-step is-active" type="button" data-step-target="1">
+          <span class="progress-index">01</span>
+          <span class="progress-copy">
+            <strong data-i18n="step1NavTitle">验证卡密</strong>
+            <small data-i18n="step1NavHint">先确认 CDKEY 可用</small>
+          </span>
+        </button>
+        <button class="progress-step" type="button" data-step-target="2">
+          <span class="progress-index">02</span>
+          <span class="progress-copy">
+            <strong data-i18n="step2NavTitle">登录账户</strong>
+            <small data-i18n="step2NavHint">确保目标账号在线</small>
+          </span>
+        </button>
+        <button class="progress-step" type="button" data-step-target="3">
+          <span class="progress-index">03</span>
+          <span class="progress-copy">
+            <strong data-i18n="step3NavTitle">验证 Session</strong>
+            <small data-i18n="step3NavHint">粘贴并检查 session_info</small>
+          </span>
+        </button>
+        <button class="progress-step" type="button" data-step-target="4">
+          <span class="progress-index">04</span>
+          <span class="progress-copy">
+            <strong data-i18n="step4NavTitle">确认充值</strong>
+            <small data-i18n="step4NavHint">核对后提交激活</small>
+          </span>
+        </button>
+      </section>
+
+      <main class="wizard-layout">
+        <section class="wizard-main card-panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-step" id="step-kicker">STEP 1</p>
+              <h2 id="step-title" data-i18n="step1Title">先验证你的 CDKEY</h2>
+            </div>
+            <span class="step-chip" id="step-chip" data-i18n="step1Chip">输入后点击验证</span>
           </div>
 
-          <ol class="guide-stack">
-            <li class="guide-step">
-              <span class="step-badge">1</span>
-              <div>
-                <h3 data-i18n="guideStep1Title">核对兑换码</h3>
-                <p data-i18n="guideStep1Body">输入 CDKEY 后点击验证，确认卡密状态与礼包信息。</p>
-              </div>
-            </li>
-            <li class="guide-step">
-              <span class="step-badge">2</span>
-              <div>
-                <h3 data-i18n="guideStep2Title">打开 ChatGPT</h3>
-                <p data-i18n="guideStep2Body">保持目标账号处于登录状态，再继续下一步操作。</p>
-                <a
-                  class="guide-link"
-                  href="https://chatgpt.com/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-i18n="openChatgpt"
-                  >打开 ChatGPT</a
-                >
-              </div>
-            </li>
-            <li class="guide-step">
-              <span class="step-badge">3</span>
-              <div>
-                <h3 data-i18n="guideStep3Title">获取会话信息</h3>
-                <p data-i18n="guideStep3Body">打开 AuthSession 页面，把完整 JSON 内容复制到下方输入框。</p>
-                <a
-                  class="guide-link guide-link--light"
-                  href="https://chatgpt.com/api/auth/session"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  data-i18n="openAuthSession"
-                  >打开 AuthSession</a
-                >
-              </div>
-            </li>
-            <li class="guide-step">
-              <span class="step-badge">4</span>
-              <div>
-                <h3 data-i18n="guideStep4Title">提交兑换</h3>
-                <p data-i18n="guideStep4Body">确认信息无误后点击开始激活，返回成功即代表兑换已提交。</p>
-              </div>
-            </li>
-          </ol>
-        </aside>
-
-        <section class="workbench">
-          <article class="redeem-card">
-            <div class="section-head">
-              <h2 data-i18n="redeemTitle">CDK 兑换</h2>
-              <p data-i18n="redeemSubline">支持先验证再兑换，也可直接提交账号会话完成激活。</p>
+          <section class="step-pane is-active" data-step-pane="1">
+            <label class="field-label" for="cdkey-input" data-i18n="cdkeyLabel">CDKEY</label>
+            <div class="inline-field">
+              <input
+                id="cdkey-input"
+                type="text"
+                maxlength="30"
+                autocomplete="off"
+                data-i18n-placeholder="cdkeyPlaceholder"
+                placeholder="例如：5S8F-S888G-5G5G-55HH"
+              />
+              <button id="check-button" type="button" class="action-button secondary" data-i18n="checkButton">
+                验证
+              </button>
             </div>
+            <p class="inline-hint" data-i18n="step1Body">验证成功后会自动进入下一步，失败时请直接查看右侧结果。</p>
+            <div class="step-actions single">
+              <button class="action-button ghost" type="button" data-step-next="1" disabled data-role="after-check-next" data-i18n="nextStep">
+                下一步
+              </button>
+            </div>
+          </section>
 
-            <div class="field-block">
-              <label for="cdkey-input" data-i18n="cdkeyLabel">输入兑换 CDKEY</label>
-              <div class="inline-field">
-                <input
-                  id="cdkey-input"
-                  type="text"
-                  maxlength="30"
-                  autocomplete="off"
-                  data-i18n-placeholder="cdkeyPlaceholder"
-                  placeholder="例如：5S8F-S888G-5G5G-55HH"
-                />
-                <button id="check-button" type="button" class="ghost-action" data-i18n="checkButton">
-                  验证
-                </button>
+          <section class="step-pane" data-step-pane="2">
+            <div class="instruction-block">
+              <h3 data-i18n="step2Title">保持目标账号已登录</h3>
+              <p data-i18n="step2Body">先在新窗口打开 ChatGPT，确认要充值的账号已经登录，然后再继续下一步。</p>
+            </div>
+            <div class="button-row">
+              <a
+                class="action-button primary link-button"
+                href="https://chatgpt.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-i18n="openChatgpt"
+                >打开 ChatGPT</a
+              >
+              <button class="action-button ghost" type="button" data-step-prev="2" data-i18n="backStep">上一步</button>
+              <button class="action-button secondary" type="button" data-step-next="2" data-i18n="loggedInNext">已登录，继续</button>
+            </div>
+          </section>
+
+          <section class="step-pane" data-step-pane="3">
+            <div class="instruction-block compact">
+              <h3 data-i18n="step3Title">提交并检查 session_info</h3>
+              <p data-i18n="step3Body">打开 AuthSession 页面，把页面中的完整 JSON 内容复制到下面输入框，再点击验证 Session。</p>
+            </div>
+            <div class="button-row tight">
+              <a
+                class="action-button primary link-button"
+                href="https://chatgpt.com/api/auth/session"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-i18n="openAuthSession"
+                >打开 AuthSession</a
+              >
+            </div>
+            <label class="field-label" for="session-info" data-i18n="sessionLabel">session_info</label>
+            <textarea
+              id="session-info"
+              rows="8"
+              data-i18n-placeholder="sessionPlaceholder"
+              placeholder='{"account":{"id":"user-xxx","planType":"free"},"accessToken":"ey...","user":{"email":"test@example.com"}}'
+            ></textarea>
+            <div class="session-meta" id="session-meta" data-state="idle">
+              <strong data-i18n="sessionMetaIdleTitle">尚未验证 Session</strong>
+              <span data-i18n="sessionMetaIdleText">请粘贴完整 JSON 后点击下方按钮。</span>
+            </div>
+            <div class="step-actions">
+              <button class="action-button ghost" type="button" data-step-prev="3" data-i18n="backStep">上一步</button>
+              <button class="action-button secondary" type="button" id="session-validate-button" data-i18n="validateSessionButton">
+                验证 Session
+              </button>
+              <button class="action-button ghost" type="button" data-step-next="3" disabled id="session-next-button" data-i18n="nextStep">
+                下一步
+              </button>
+            </div>
+          </section>
+
+          <section class="step-pane" data-step-pane="4">
+            <div class="instruction-block compact">
+              <h3 data-i18n="step4Title">确认后提交激活</h3>
+              <p data-i18n="step4Body">最后核对卡密与会话信息。需要覆盖剩余会员时，可以勾选强制充值。</p>
+            </div>
+            <div class="confirm-grid">
+              <div class="confirm-card">
+                <span data-i18n="confirmCdkey">当前 CDKEY</span>
+                <strong id="confirm-cdkey">-</strong>
+              </div>
+              <div class="confirm-card">
+                <span data-i18n="confirmSession">Session 状态</span>
+                <strong id="confirm-session" data-i18n="sessionNotChecked">未验证</strong>
               </div>
             </div>
-
-            <div class="field-block">
-              <label for="session-info" data-i18n="sessionLabel">输入会话信息</label>
-              <textarea
-                id="session-info"
-                rows="4"
-                data-i18n-placeholder="sessionPlaceholder"
-                placeholder='{"account":{"id":"user-xxx","planType":"free"},"accessToken":"ey...","user":{"email":"test@example.com"}}'
-              ></textarea>
-            </div>
-
             <label class="toggle-line" for="force-recharge">
               <input id="force-recharge" type="checkbox" />
               <span data-i18n="forceRechargeLabel">放弃剩余会员时间，强制充值</span>
             </label>
-
-            <div class="action-strip">
-              <button id="activate-button" type="button" class="primary-action" data-i18n="activateButton">
+            <div class="step-actions">
+              <button class="action-button ghost" type="button" data-step-prev="4" data-i18n="backStep">上一步</button>
+              <button id="activate-button" type="button" class="action-button primary" data-i18n="activateButton">
                 开始激活
               </button>
             </div>
-          </article>
+          </section>
+        </section>
 
-          <article class="result-card is-hidden" id="check-result-card">
-            <div class="section-head">
-              <h2 data-i18n="checkResultTitle">验证结果</h2>
-              <p data-i18n="checkResultHint">仅显示当前提交对应的可读文本结果。</p>
+        <aside class="wizard-side">
+          <section class="card-panel helper-panel">
+            <h3 data-i18n="helperTitle">当前操作提示</h3>
+            <p id="helper-copy" data-i18n="helperStep1">输入 CDKEY 并点击验证。验证通过后，再继续登录和提交 Session。</p>
+          </section>
+
+          <article class="card-panel result-card is-hidden" id="check-result-card">
+            <div class="result-head">
+              <h3 data-i18n="checkResultTitle">验证结果</h3>
+              <span class="result-tag" data-i18n="step1ResultTag">Step 1</span>
             </div>
             <pre id="check-result">尚未请求</pre>
           </article>
 
-          <article class="result-card is-hidden" id="activate-result-card">
-            <div class="section-head">
-              <h2 data-i18n="activateResultTitle">兑换结果</h2>
-              <p data-i18n="activateResultHint">激活完成后会展示最终状态与关键信息。</p>
+          <article class="card-panel result-card is-hidden" id="activate-result-card">
+            <div class="result-head">
+              <h3 data-i18n="activateResultTitle">激活结果</h3>
+              <span class="result-tag" data-i18n="step4ResultTag">Step 4</span>
             </div>
             <pre id="activate-result">尚未请求</pre>
           </article>
-        </section>
+        </aside>
       </main>
-
-      <footer class="receipt-footer" data-i18n="footerText">
-        © 2026 兑换服务中心. 使用本服务即表示您已了解相关规则。
-      </footer>
     </div>
 
     <script>
@@ -159,6 +206,6 @@
         aliasApiBaseUrl: "https://alias-service.ccmyqs.workers.dev/v1/alias"
       };
     </script>
-    <script type="module" src="site-b.js?v=20260406a"></script>
+    <script type="module" src="site-b.js?v=20260406b"></script>
   </body>
 </html>

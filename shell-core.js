@@ -1,4 +1,4 @@
-const ALIAS_API_BASE = (() => {
+﻿const ALIAS_API_BASE = (() => {
   const raw = window.GPT_SHELL_CONFIG?.aliasApiBaseUrl;
   if (!raw) return "http://127.0.0.1:4190/v1/alias";
   return raw.replace(/\/+$/, "");
@@ -24,59 +24,90 @@ export function createShellApp(localeText, options = {}) {
     langButtons: Array.from(document.querySelectorAll(".lang")),
   };
 
+  const hooks = {
+    onCheckComplete: typeof options.onCheckComplete === "function" ? options.onCheckComplete : null,
+    onActivateComplete:
+      typeof options.onActivateComplete === "function" ? options.onActivateComplete : null,
+    onLanguageApplied:
+      typeof options.onLanguageApplied === "function" ? options.onLanguageApplied : null,
+  };
+
   elements.checkButton?.addEventListener("click", () =>
-    triggerCheck(localeText, currentLangRef, state, elements)
+    triggerCheck(localeText, currentLangRef, state, elements, hooks)
   );
   elements.activateButton?.addEventListener("click", () =>
-    triggerActivate(localeText, currentLangRef, state, elements)
+    triggerActivate(localeText, currentLangRef, state, elements, hooks)
   );
   elements.langButtons.forEach((button) => {
     button.addEventListener("click", () =>
-      applyLanguage(localeText, currentLangRef, state, elements, button.dataset.lang)
+      applyLanguage(localeText, currentLangRef, state, elements, hooks, button.dataset.lang)
     );
   });
 
-  applyLanguage(localeText, currentLangRef, state, elements, currentLangRef.value);
+  applyLanguage(localeText, currentLangRef, state, elements, hooks, currentLangRef.value);
 
   return {
+    async check() {
+      return triggerCheck(localeText, currentLangRef, state, elements, hooks);
+    },
+    async activate() {
+      return triggerActivate(localeText, currentLangRef, state, elements, hooks);
+    },
     setLanguage(lang) {
-      applyLanguage(localeText, currentLangRef, state, elements, lang);
+      applyLanguage(localeText, currentLangRef, state, elements, hooks, lang);
+    },
+    getLanguage() {
+      return currentLangRef.value;
+    },
+    getElements() {
+      return elements;
     },
   };
 }
 
-async function triggerCheck(localeText, currentLangRef, state, elements) {
+async function triggerCheck(localeText, currentLangRef, state, elements, hooks) {
   const aliasCdkey = elements.cdkeyInput?.value.trim() || "";
   revealResult(elements.checkResultCard);
 
   if (!aliasCdkey) {
     state.checkRequested = true;
-    renderResult(elements.checkResult, text(localeText, currentLangRef, "needCdkeyForCheck"), true);
-    return;
+    const displayText = text(localeText, currentLangRef, "needCdkeyForCheck");
+    renderResult(elements.checkResult, displayText, true);
+    const summary = { success: false, isError: true, displayText, payload: null, reason: "missing_cdkey" };
+    hooks.onCheckComplete?.(summary);
+    return summary;
   }
 
   setLoading(elements.checkButton, true, text(localeText, currentLangRef, "checkLoading"));
   try {
     const payload = await postAlias("check", { alias_cdkey: aliasCdkey });
+    const isError = !payload?.success;
+    const displayText = formatDisplayText(payload, localeText, currentLangRef);
     state.checkRequested = true;
-    renderResult(
-      elements.checkResult,
-      formatDisplayText(payload, localeText, currentLangRef),
-      !payload?.success
-    );
+    renderResult(elements.checkResult, displayText, isError);
+    const summary = { success: !isError, isError, displayText, payload, reason: isError ? "api_failed" : "ok" };
+    hooks.onCheckComplete?.(summary);
+    return summary;
   } catch (error) {
+    const displayText = error.message || text(localeText, currentLangRef, "requestFailed");
     state.checkRequested = true;
-    renderResult(
-      elements.checkResult,
-      error.message || text(localeText, currentLangRef, "requestFailed"),
-      true
-    );
+    renderResult(elements.checkResult, displayText, true);
+    const summary = {
+      success: false,
+      isError: true,
+      displayText,
+      payload: null,
+      reason: "network_failed",
+      error,
+    };
+    hooks.onCheckComplete?.(summary);
+    return summary;
   } finally {
     setLoading(elements.checkButton, false, text(localeText, currentLangRef, "checkButton"));
   }
 }
 
-async function triggerActivate(localeText, currentLangRef, state, elements) {
+async function triggerActivate(localeText, currentLangRef, state, elements, hooks) {
   const aliasCdkey = elements.cdkeyInput?.value.trim() || "";
   const sessionInfo = elements.sessionInput?.value.trim() || "";
   const forceRecharge = elements.forceRechargeInput?.checked === true;
@@ -84,22 +115,43 @@ async function triggerActivate(localeText, currentLangRef, state, elements) {
 
   if (!aliasCdkey) {
     state.activateRequested = true;
-    renderResult(elements.activateResult, text(localeText, currentLangRef, "needCdkeyForActivate"), true);
-    return;
+    const displayText = text(localeText, currentLangRef, "needCdkeyForActivate");
+    renderResult(elements.activateResult, displayText, true);
+    const summary = { success: false, isError: true, displayText, payload: null, reason: "missing_cdkey" };
+    hooks.onActivateComplete?.(summary);
+    return summary;
   }
 
   if (!sessionInfo) {
     state.activateRequested = true;
-    renderResult(elements.activateResult, text(localeText, currentLangRef, "needSessionInfo"), true);
-    return;
+    const displayText = text(localeText, currentLangRef, "needSessionInfo");
+    renderResult(elements.activateResult, displayText, true);
+    const summary = {
+      success: false,
+      isError: true,
+      displayText,
+      payload: null,
+      reason: "missing_session",
+    };
+    hooks.onActivateComplete?.(summary);
+    return summary;
   }
 
   try {
     JSON.parse(sessionInfo);
   } catch {
     state.activateRequested = true;
-    renderResult(elements.activateResult, text(localeText, currentLangRef, "invalidSession"), true);
-    return;
+    const displayText = text(localeText, currentLangRef, "invalidSession");
+    renderResult(elements.activateResult, displayText, true);
+    const summary = {
+      success: false,
+      isError: true,
+      displayText,
+      payload: null,
+      reason: "invalid_session",
+    };
+    hooks.onActivateComplete?.(summary);
+    return summary;
   }
 
   setLoading(elements.activateButton, true, text(localeText, currentLangRef, "activateLoading"));
@@ -109,19 +161,27 @@ async function triggerActivate(localeText, currentLangRef, state, elements) {
       session_info: sessionInfo,
       force: forceRecharge ? 1 : 0,
     });
+    const isError = !payload?.success;
+    const displayText = formatDisplayText(payload, localeText, currentLangRef);
     state.activateRequested = true;
-    renderResult(
-      elements.activateResult,
-      formatDisplayText(payload, localeText, currentLangRef),
-      !payload?.success
-    );
+    renderResult(elements.activateResult, displayText, isError);
+    const summary = { success: !isError, isError, displayText, payload, reason: isError ? "api_failed" : "ok" };
+    hooks.onActivateComplete?.(summary);
+    return summary;
   } catch (error) {
+    const displayText = error.message || text(localeText, currentLangRef, "activateFailed");
     state.activateRequested = true;
-    renderResult(
-      elements.activateResult,
-      error.message || text(localeText, currentLangRef, "activateFailed"),
-      true
-    );
+    renderResult(elements.activateResult, displayText, true);
+    const summary = {
+      success: false,
+      isError: true,
+      displayText,
+      payload: null,
+      reason: "network_failed",
+      error,
+    };
+    hooks.onActivateComplete?.(summary);
+    return summary;
   } finally {
     setLoading(elements.activateButton, false, text(localeText, currentLangRef, "activateButton"));
   }
@@ -236,7 +296,7 @@ function text(localeText, currentLangRef, key) {
   return localeText[currentLangRef.value]?.[key] || localeText.zh?.[key] || "";
 }
 
-function applyLanguage(localeText, currentLangRef, state, elements, lang) {
+function applyLanguage(localeText, currentLangRef, state, elements, hooks, lang) {
   currentLangRef.value = localeText[lang] ? lang : "zh";
   document.documentElement.lang = currentLangRef.value;
   document.title = text(localeText, currentLangRef, "pageTitle");
@@ -262,4 +322,6 @@ function applyLanguage(localeText, currentLangRef, state, elements, lang) {
   if (!state.activateRequested) {
     renderResult(elements.activateResult, text(localeText, currentLangRef, "notRequested"));
   }
+
+  hooks.onLanguageApplied?.(currentLangRef.value, { ...elements });
 }
