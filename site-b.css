@@ -1,0 +1,332 @@
+:root {
+  --bg: #f7f9fd;
+  --panel: rgba(255, 255, 255, 0.78);
+  --panel-strong: rgba(255, 255, 255, 0.92);
+  --line: rgba(106, 129, 167, 0.18);
+  --text: #16233b;
+  --muted: #61738f;
+  --accent: #3b82f6;
+  --accent-strong: #2563eb;
+  --accent-soft: #e8f0ff;
+  --success: #e8fff5;
+  --shadow: 0 16px 40px rgba(135, 154, 185, 0.22);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Outfit", "Noto Sans SC", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at left top, rgba(184, 204, 255, 0.56), transparent 30%),
+    radial-gradient(circle at right bottom, rgba(213, 233, 255, 0.7), transparent 34%),
+    linear-gradient(180deg, #f9fbff, #eef4fb);
+  padding: 18px;
+}
+
+body[data-theme="night"] {
+  --bg: #0f1728;
+  --panel: rgba(18, 30, 48, 0.84);
+  --panel-strong: rgba(18, 30, 48, 0.96);
+  --line: rgba(149, 177, 225, 0.14);
+  --text: #edf4ff;
+  --muted: #9db0ce;
+  --accent: #7cb8ff;
+  --accent-strong: #5d98ff;
+  --accent-soft: rgba(92, 126, 191, 0.18);
+  --success: rgba(56, 99, 79, 0.22);
+  --shadow: 0 18px 40px rgba(3, 8, 18, 0.38);
+  background:
+    radial-gradient(circle at left top, rgba(46, 92, 160, 0.34), transparent 32%),
+    radial-gradient(circle at right bottom, rgba(30, 63, 131, 0.3), transparent 28%),
+    linear-gradient(180deg, #08111f, #0e1829);
+}
+
+.receipt-shell {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+}
+
+.receipt-topbar,
+.guide-card,
+.redeem-card,
+.result-card,
+.receipt-footer {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.receipt-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 26px;
+  border-radius: 22px;
+}
+
+.receipt-topbar h1,
+.section-head h2,
+.guide-step h3 {
+  margin: 0;
+}
+
+.receipt-topbar h1 {
+  font-size: clamp(1.7rem, 2.8vw, 2.25rem);
+  letter-spacing: -0.03em;
+}
+
+.receipt-topbar p,
+.section-head p,
+.guide-step p,
+.receipt-footer {
+  margin: 0;
+  color: var(--muted);
+}
+
+.topbar-actions,
+.lang-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lang,
+.mode-toggle {
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  color: var(--text);
+  border-radius: 999px;
+  min-width: 46px;
+  padding: 10px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.lang.active {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.mode-toggle {
+  font-weight: 700;
+}
+
+.receipt-layout {
+  display: grid;
+  grid-template-columns: 0.82fr 1.18fr;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.guide-card,
+.redeem-card,
+.result-card {
+  border-radius: 22px;
+  padding: 24px;
+}
+
+.guide-card {
+  align-self: start;
+}
+
+.guide-stack {
+  list-style: none;
+  margin: 22px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 18px;
+}
+
+.guide-step {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 14px;
+}
+
+.step-badge {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.guide-step h3 {
+  margin-bottom: 6px;
+  font-size: 1rem;
+}
+
+.guide-step p {
+  line-height: 1.55;
+  margin-bottom: 10px;
+}
+
+.guide-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 12px;
+  text-decoration: none;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+}
+
+.guide-link--light {
+  background: #eef4ff;
+  color: var(--accent-strong);
+}
+
+.workbench {
+  display: grid;
+  gap: 18px;
+}
+
+.field-block {
+  margin-top: 18px;
+}
+
+.field-block label,
+.toggle-line {
+  display: block;
+  font-weight: 600;
+}
+
+.inline-field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+input,
+textarea,
+.ghost-action,
+.primary-action {
+  font: inherit;
+}
+
+input,
+textarea {
+  width: 100%;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  color: var(--text);
+  padding: 14px 16px;
+  outline: none;
+}
+
+textarea {
+  margin-top: 8px;
+  resize: vertical;
+  min-height: 128px;
+}
+
+.toggle-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  color: var(--muted);
+}
+
+.ghost-action,
+.primary-action {
+  border: 0;
+  border-radius: 16px;
+  cursor: pointer;
+}
+
+.ghost-action {
+  min-width: 90px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  padding: 0 18px;
+}
+
+.primary-action {
+  min-height: 48px;
+  padding: 0 22px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  box-shadow: 0 12px 22px rgba(66, 127, 255, 0.26);
+}
+
+.action-strip {
+  margin-top: 18px;
+}
+
+.result-card pre {
+  margin: 18px 0 0;
+  min-height: 92px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  white-space: pre-wrap;
+  color: var(--text);
+}
+
+.is-hidden {
+  display: none;
+}
+
+.is-visible {
+  display: block;
+}
+
+.receipt-footer {
+  margin-top: 18px;
+  border-radius: 18px;
+  padding: 18px 24px;
+  text-align: center;
+  font-size: 0.92rem;
+}
+
+@media (max-width: 860px) {
+  .receipt-topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .receipt-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  body {
+    padding: 12px;
+  }
+
+  .receipt-topbar,
+  .guide-card,
+  .redeem-card,
+  .result-card,
+  .receipt-footer {
+    padding: 18px;
+  }
+
+  .inline-field {
+    grid-template-columns: 1fr;
+  }
+
+  .ghost-action,
+  .primary-action {
+    min-height: 46px;
+    width: 100%;
+  }
+}

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ChatGPT 礼品兑换中心</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="site-b.css?v=20260406a" />
+  </head>
+  <body>
+    <div class="receipt-shell">
+      <header class="receipt-topbar">
+        <div>
+          <h1 data-i18n="brandTitle">ChatGPT 礼品兑换中心</h1>
+          <p data-i18n="heroSubline">安全、快速、独立的账号兑换服务</p>
+        </div>
+        <div class="topbar-actions">
+          <div class="lang-switch">
+            <button class="lang active" type="button" data-lang="zh">中</button>
+            <button class="lang" type="button" data-lang="en">EN</button>
+          </div>
+          <button id="theme-toggle" class="mode-toggle" type="button" aria-label="切换主题">
+            ◐
+          </button>
+        </div>
+      </header>
+
+      <main class="receipt-layout">
+        <aside class="guide-card">
+          <div class="section-head">
+            <h2 data-i18n="guideTitle">操作向导</h2>
+            <p data-i18n="guideIntro">按顺序完成验证与兑换，提交后请耐心等待返回结果。</p>
+          </div>
+
+          <ol class="guide-stack">
+            <li class="guide-step">
+              <span class="step-badge">1</span>
+              <div>
+                <h3 data-i18n="guideStep1Title">核对兑换码</h3>
+                <p data-i18n="guideStep1Body">输入 CDKEY 后点击验证，确认卡密状态与礼包信息。</p>
+              </div>
+            </li>
+            <li class="guide-step">
+              <span class="step-badge">2</span>
+              <div>
+                <h3 data-i18n="guideStep2Title">打开 ChatGPT</h3>
+                <p data-i18n="guideStep2Body">保持目标账号处于登录状态，再继续下一步操作。</p>
+                <a
+                  class="guide-link"
+                  href="https://chatgpt.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-i18n="openChatgpt"
+                  >打开 ChatGPT</a
+                >
+              </div>
+            </li>
+            <li class="guide-step">
+              <span class="step-badge">3</span>
+              <div>
+                <h3 data-i18n="guideStep3Title">获取会话信息</h3>
+                <p data-i18n="guideStep3Body">打开 AuthSession 页面，把完整 JSON 内容复制到下方输入框。</p>
+                <a
+                  class="guide-link guide-link--light"
+                  href="https://chatgpt.com/api/auth/session"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-i18n="openAuthSession"
+                  >打开 AuthSession</a
+                >
+              </div>
+            </li>
+            <li class="guide-step">
+              <span class="step-badge">4</span>
+              <div>
+                <h3 data-i18n="guideStep4Title">提交兑换</h3>
+                <p data-i18n="guideStep4Body">确认信息无误后点击开始激活，返回成功即代表兑换已提交。</p>
+              </div>
+            </li>
+          </ol>
+        </aside>
+
+        <section class="workbench">
+          <article class="redeem-card">
+            <div class="section-head">
+              <h2 data-i18n="redeemTitle">CDK 兑换</h2>
+              <p data-i18n="redeemSubline">支持先验证再兑换，也可直接提交账号会话完成激活。</p>
+            </div>
+
+            <div class="field-block">
+              <label for="cdkey-input" data-i18n="cdkeyLabel">输入兑换 CDKEY</label>
+              <div class="inline-field">
+                <input
+                  id="cdkey-input"
+                  type="text"
+                  maxlength="30"
+                  autocomplete="off"
+                  data-i18n-placeholder="cdkeyPlaceholder"
+                  placeholder="例如：5S8F-S888G-5G5G-55HH"
+                />
+                <button id="check-button" type="button" class="ghost-action" data-i18n="checkButton">
+                  验证
+                </button>
+              </div>
+            </div>
+
+            <div class="field-block">
+              <label for="session-info" data-i18n="sessionLabel">输入会话信息</label>
+              <textarea
+                id="session-info"
+                rows="4"
+                data-i18n-placeholder="sessionPlaceholder"
+                placeholder='{"account":{"id":"user-xxx","planType":"free"},"accessToken":"ey...","user":{"email":"test@example.com"}}'
+              ></textarea>
+            </div>
+
+            <label class="toggle-line" for="force-recharge">
+              <input id="force-recharge" type="checkbox" />
+              <span data-i18n="forceRechargeLabel">放弃剩余会员时间，强制充值</span>
+            </label>
+
+            <div class="action-strip">
+              <button id="activate-button" type="button" class="primary-action" data-i18n="activateButton">
+                开始激活
+              </button>
+            </div>
+          </article>
+
+          <article class="result-card is-hidden" id="check-result-card">
+            <div class="section-head">
+              <h2 data-i18n="checkResultTitle">验证结果</h2>
+              <p data-i18n="checkResultHint">仅显示当前提交对应的可读文本结果。</p>
+            </div>
+            <pre id="check-result">尚未请求</pre>
+          </article>
+
+          <article class="result-card is-hidden" id="activate-result-card">
+            <div class="section-head">
+              <h2 data-i18n="activateResultTitle">兑换结果</h2>
+              <p data-i18n="activateResultHint">激活完成后会展示最终状态与关键信息。</p>
+            </div>
+            <pre id="activate-result">尚未请求</pre>
+          </article>
+        </section>
+      </main>
+
+      <footer class="receipt-footer" data-i18n="footerText">
+        © 2026 兑换服务中心. 使用本服务即表示您已了解相关规则。
+      </footer>
+    </div>
+
+    <script>
+      window.GPT_SHELL_CONFIG = {
+        aliasApiBaseUrl: "https://alias-service.ccmyqs.workers.dev/v1/alias"
+      };
+    </script>
+    <script type="module" src="site-b.js?v=20260406a"></script>
+  </body>
+</html>
