@@ -245,7 +245,7 @@ function fallbackTargetApiBase(env) {
 }
 
 function poolBTargetApiBase(env) {
-  return String(env.POOL_B_TARGET_API_BASE || "").replace(/\/+$/, "");
+  return String(env.POOL_B_TARGET_API_BASE || "https://duolg.com/api").replace(/\/+$/, "");
 }
 
 function requiredTargetBase(base, name) {
@@ -267,6 +267,69 @@ function shouldFallbackActivate(result) {
   );
 }
 
+function isDuolgCdkFormat(cdkey) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(cdkey || "").trim());
+}
+
+function normalizeDuolgResult(result) {
+  if (!result || typeof result !== "object") return { success: false, msg: "duolg request failed", data: "" };
+  if (result.success === true) return { success: true, msg: String(result.msg || "ok"), data: result.data || "" };
+  const error = result.error && typeof result.error === "object" ? result.error : {};
+  return {
+    success: false,
+    msg: String(result.msg || error.message || error.code || "duolg request failed"),
+    data: error,
+  };
+}
+
+function duolgPlatformCredential(sessionInfo) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(sessionInfo || ""));
+  } catch {
+    throw new Error("session_info invalid.");
+  }
+  return {
+    platform: "chatgpt",
+    data: {
+      user: parsed.user,
+      account: parsed.account,
+      accessToken: parsed.accessToken,
+    },
+  };
+}
+
+async function callDuolgTarget(base, path, payload) {
+  if (path === "/check") {
+    if (!isDuolgCdkFormat(payload.cdkey)) return { success: false, msg: "INVALID_CDK_FORMAT", data: "" };
+    const result = await callTarget(base, "/external/cdks/filter-unused", { cdks: [payload.cdkey] });
+    const normalized = normalizeDuolgResult(result);
+    if (!normalized.success) return normalized;
+    const cdks = Array.isArray(result?.data?.cdks) ? result.data.cdks : [];
+    const usable = cdks.includes(payload.cdkey);
+    return { success: usable, msg: usable ? "ok" : "CDKEY unavailable", data: { cdkey: payload.cdkey, available: usable } };
+  }
+
+  if (path === "/activate") {
+    const platformCredential = duolgPlatformCredential(payload.session_info);
+    const verifyPayload = { cdk: payload.cdkey, platformCredential };
+    const verifyResult = normalizeDuolgResult(await callTarget(base, "/external/redeem/verify", verifyPayload));
+    if (!verifyResult.success) return verifyResult;
+
+    const confirmPayload = { cdk: payload.cdkey, confirm: true, platformCredential };
+    return normalizeDuolgResult(await callTarget(base, "/external/redeem/confirm", confirmPayload));
+  }
+
+  return callTarget(base, path, payload);
+}
+
+async function callPoolTarget(env, pool, path, payload) {
+  if (normalizePool(pool) === POOL_B) {
+    return callDuolgTarget(targetApiBaseForPool(env, POOL_B), path, payload);
+  }
+  return callTarget(targetApiBase(env), path, payload);
+}
+
 async function callTarget(base, path, payload) {
   try {
     const resp = await fetch(`${base}${path}`, {
@@ -283,7 +346,7 @@ async function callTarget(base, path, payload) {
     }
     return parsed;
   } catch {
-    return { success: false, msg: "套壳网站接口请求失败", data: "" };
+    return { success: false, msg: "target request failed", data: "" };
   }
 }
 
@@ -332,8 +395,8 @@ function adminHtml() {
 
     <label>CDKEY Pool</label>
     <select id="pool">
-      <option value="A" selected>Pool A (current 4-5-4-4)</option>
-      <option value="B">Pool B (new 4-4-5-4)</option>
+      <option value="A" selected>熊猫池 (4-5-4-4)</option>
+      <option value="B">duolg池 (4-4-5-4)</option>
     </select>
     <label>单个原始CDKEY</label>
     <input id="cdkey" type="text" placeholder="输入一个原始CDKEY"/>
@@ -653,7 +716,7 @@ export default {
         const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
         if (!mapped || !mapped.cdkey) return json({ success: false, msg: "CDKEY not found", data: "" });
 
-        const targetResult = await callTarget(targetApiBaseForPool(env, pool), "/check", { cdkey: String(mapped.cdkey).trim() });
+        const targetResult = await callPoolTarget(env, pool, "/check", { cdkey: String(mapped.cdkey).trim() });
         return json({
           success: Boolean(targetResult && targetResult.success),
           msg: String(targetResult?.msg || "ok"),
@@ -677,7 +740,7 @@ export default {
           session_info: sessionInfo,
           force,
         };
-        const primaryResult = await callTarget(targetApiBaseForPool(env, pool), "/activate", targetPayload);
+        const primaryResult = await callPoolTarget(env, pool, "/activate", targetPayload);
         const fallbackUsed = pool === POOL_A && shouldFallbackActivate(primaryResult);
         const targetResult = fallbackUsed
           ? await callTarget(fallbackTargetApiBase(env), "/activate", targetPayload)

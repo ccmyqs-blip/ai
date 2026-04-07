@@ -8,7 +8,7 @@ const crypto = require("crypto");
 const PORT = Number.parseInt(process.env.PORT || "4190", 10);
 const TARGET_API_BASE = (process.env.TARGET_API_BASE || "https://gpt.86gamestore.com/api").replace(/\/+$/, "");
 const FALLBACK_TARGET_API_BASE = (process.env.FALLBACK_TARGET_API_BASE || "https://redeemgpt.com/api").replace(/\/+$/, "");
-const POOL_B_TARGET_API_BASE = (process.env.POOL_B_TARGET_API_BASE || "").replace(/\/+$/, "");
+const POOL_B_TARGET_API_BASE = (process.env.POOL_B_TARGET_API_BASE || "https://duolg.com/api").replace(/\/+$/, "");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Cc123123.";
 const STORE_FILE = path.join(__dirname, "alias-map.json");
 const ADMIN_PAGE_FILE = path.join(__dirname, "admin.html");
@@ -257,6 +257,74 @@ function shouldFallbackActivate(targetBody) {
   );
 }
 
+function isDuolgCdkFormat(cdkey) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(cdkey || "").trim());
+}
+
+function normalizeDuolgResult(result) {
+  if (!result || typeof result !== "object") return { success: false, msg: "duolg request failed", data: "" };
+  if (result.success === true) return { success: true, msg: String(result.msg || "ok"), data: result.data || "" };
+  const error = result.error && typeof result.error === "object" ? result.error : {};
+  return {
+    success: false,
+    msg: String(result.msg || error.message || error.code || "duolg request failed"),
+    data: error,
+  };
+}
+
+function duolgPlatformCredential(sessionInfo) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(sessionInfo || ""));
+  } catch {
+    throw new Error("session_info invalid.");
+  }
+  return {
+    platform: "chatgpt",
+    data: {
+      user: parsed.user,
+      account: parsed.account,
+      accessToken: parsed.accessToken,
+    },
+  };
+}
+
+async function callDuolgTarget(base, pathname, payload) {
+  if (pathname === "/check") {
+    if (!isDuolgCdkFormat(payload.cdkey)) return { http_status: 200, body: { success: false, msg: "INVALID_CDK_FORMAT", data: "" } };
+    const result = await callTarget(base, "/external/cdks/filter-unused", { cdks: [payload.cdkey] });
+    const normalized = normalizeDuolgResult(result.body);
+    if (!normalized.success) return { http_status: result.http_status, body: normalized };
+    const cdks = Array.isArray(result.body?.data?.cdks) ? result.body.data.cdks : [];
+    const usable = cdks.includes(payload.cdkey);
+    return {
+      http_status: result.http_status,
+      body: { success: usable, msg: usable ? "ok" : "CDKEY unavailable", data: { cdkey: payload.cdkey, available: usable } },
+    };
+  }
+
+  if (pathname === "/activate") {
+    const platformCredential = duolgPlatformCredential(payload.session_info);
+    const verifyPayload = { cdk: payload.cdkey, platformCredential };
+    const verifyResult = await callTarget(base, "/external/redeem/verify", verifyPayload);
+    const normalizedVerify = normalizeDuolgResult(verifyResult.body);
+    if (!normalizedVerify.success) return { http_status: verifyResult.http_status, body: normalizedVerify };
+
+    const confirmPayload = { cdk: payload.cdkey, confirm: true, platformCredential };
+    const confirmResult = await callTarget(base, "/external/redeem/confirm", confirmPayload);
+    return { http_status: confirmResult.http_status, body: normalizeDuolgResult(confirmResult.body) };
+  }
+
+  return callTarget(base, pathname, payload);
+}
+
+async function callPoolTarget(pool, pathname, payload) {
+  if (normalizePool(pool) === POOL_B) {
+    return callDuolgTarget(targetApiBaseForPool(POOL_B), pathname, payload);
+  }
+  return callTarget(TARGET_API_BASE, pathname, payload);
+}
+
 async function callTarget(base, pathname, payload) {
   try {
     const response = await fetch(`${base}${pathname}`, {
@@ -409,7 +477,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const result = await callTarget(targetApiBaseForPool(pool), "/check", {
+      const result = await callPoolTarget(pool, "/check", {
         cdkey: normalizeCdkey(mapped.cdkey),
       });
       const targetMsg = unwrapTargetMessage(result.body);
@@ -452,7 +520,7 @@ const server = http.createServer(async (req, res) => {
         session_info: sessionInfo,
         force,
       };
-      const primaryResult = await callTarget(targetApiBaseForPool(pool), "/activate", targetPayload);
+      const primaryResult = await callPoolTarget(pool, "/activate", targetPayload);
       const fallbackUsed = pool === POOL_A && shouldFallbackActivate(primaryResult.body);
       const result = fallbackUsed
         ? await callTarget(FALLBACK_TARGET_API_BASE, "/activate", targetPayload)
