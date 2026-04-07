@@ -9,20 +9,30 @@ const PORT = Number.parseInt(process.env.PORT || "4190", 10);
 const TARGET_API_BASE = (process.env.TARGET_API_BASE || "https://gpt.86gamestore.com/api").replace(/\/+$/, "");
 const FALLBACK_TARGET_API_BASE = (process.env.FALLBACK_TARGET_API_BASE || "https://redeemgpt.com/api").replace(/\/+$/, "");
 const POOL_B_TARGET_API_BASE = (process.env.POOL_B_TARGET_API_BASE || "https://duolg.com/api").replace(/\/+$/, "");
+const POOL_C_TARGET_API_BASE = (process.env.POOL_C_TARGET_API_BASE || "https://ferri.chat/api").replace(/\/+$/, "");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Cc123123.";
 const STORE_FILE = path.join(__dirname, "alias-map.json");
 const ADMIN_PAGE_FILE = path.join(__dirname, "admin.html");
 const POOL_A = "A";
 const POOL_B = "B";
+const POOL_C = "C";
 const ALIAS_SEGMENTS_BY_POOL = {
   [POOL_A]: [4, 5, 4, 4],
   [POOL_B]: [4, 4, 5, 4],
+  [POOL_C]: [4, 4, 4, 5],
 };
 const ALIAS_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const POOL_A_ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 const POOL_B_ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}$/;
+const POOL_C_ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}$/;
 const ALIAS_PATTERN = POOL_A_ALIAS_PATTERN;
 const REAL_CDKEY_INDEX_PREFIX = "REAL::";
+const ACTIVATION_GATE_WAIT_MS = 10000;
+const ACTIVATION_BUSY_MESSAGE = "\u5f53\u524d\u540c\u65f6\u5151\u6362\u4eba\u6570\u8fc7\u591a\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u4e00\u6b21";
+const activationGate = {
+  active: false,
+  queue: [],
+};
 
 function ensureStoreFile() {
   if (!fs.existsSync(STORE_FILE)) {
@@ -58,6 +68,7 @@ function normalizePool(value) {
   const text = String(value || "").trim().toUpperCase();
   if (!text || text === POOL_A || text === "POOL_A" || text === "1") return POOL_A;
   if (text === POOL_B || text === "POOL_B" || text === "2") return POOL_B;
+  if (text === POOL_C || text === "POOL_C" || text === "3") return POOL_C;
   throw new Error("pool is invalid.");
 }
 
@@ -65,6 +76,7 @@ function detectAliasPool(aliasRaw) {
   const alias = normalizeAlias(aliasRaw);
   if (POOL_A_ALIAS_PATTERN.test(alias)) return POOL_A;
   if (POOL_B_ALIAS_PATTERN.test(alias)) return POOL_B;
+  if (POOL_C_ALIAS_PATTERN.test(alias)) return POOL_C;
   return "";
 }
 
@@ -156,7 +168,9 @@ function normalizeCdkeyForIndex(cdkey) {
 function realCdkeyIndexKey(cdkey, poolRaw = POOL_A) {
   const pool = normalizePool(poolRaw);
   const normalized = normalizeCdkeyForIndex(cdkey);
-  return pool === POOL_B ? `${REAL_CDKEY_INDEX_PREFIX}${POOL_B}::${normalized}` : `${REAL_CDKEY_INDEX_PREFIX}${normalized}`;
+  if (pool === POOL_B) return `${REAL_CDKEY_INDEX_PREFIX}${POOL_B}::${normalized}`;
+  if (pool === POOL_C) return `${REAL_CDKEY_INDEX_PREFIX}${POOL_C}::${normalized}`;
+  return `${REAL_CDKEY_INDEX_PREFIX}${normalized}`;
 }
 
 function optionalString(value) {
@@ -246,6 +260,10 @@ function targetApiBaseForPool(poolRaw) {
     if (!POOL_B_TARGET_API_BASE) throw new Error("POOL_B_TARGET_API_BASE is not configured.");
     return POOL_B_TARGET_API_BASE;
   }
+  if (pool === POOL_C) {
+    if (!POOL_C_TARGET_API_BASE) throw new Error("POOL_C_TARGET_API_BASE is not configured.");
+    return POOL_C_TARGET_API_BASE;
+  }
   return TARGET_API_BASE;
 }
 
@@ -318,9 +336,55 @@ async function callDuolgTarget(base, pathname, payload) {
   return callTarget(base, pathname, payload);
 }
 
+function normalizeFerriResult(result) {
+  if (!result || typeof result !== "object") return { success: false, msg: "ferri request failed", data: "" };
+  if (result.ok === true || result.success === true) return { success: true, msg: String(result.message || result.msg || "ok"), data: result };
+  return { success: false, msg: String(result.error || result.message || result.msg || "ferri request failed"), data: result };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function callFerriTarget(base, pathname, payload) {
+  if (pathname === "/check") {
+    const result = await callTarget(base, "/cards/verify", { code: String(payload.cdkey || "").trim().toUpperCase() });
+    return { http_status: result.http_status, body: normalizeFerriResult(result.body) };
+  }
+
+  if (pathname === "/activate") {
+    const startResult = await callTarget(base, "/workflow/start", {
+      card_code: String(payload.cdkey || "").trim().toUpperCase(),
+      token_snapshot: String(payload.session_info || "").trim(),
+    });
+    const normalizedStart = normalizeFerriResult(startResult.body);
+    if (!normalizedStart.success) return { http_status: startResult.http_status, body: normalizedStart };
+
+    const jobId = String(startResult.body?.job?.id || "").trim();
+    if (!jobId) return { http_status: startResult.http_status, body: { success: false, msg: "ferri workflow job id missing", data: startResult.body } };
+
+    for (let i = 0; i < 12; i += 1) {
+      await sleep(1500);
+      const statusResult = await fetchTargetJson(`${base}/workflow/status?id=${encodeURIComponent(jobId)}`);
+      const job = statusResult.body?.job || {};
+      if (job.status === "queued" || job.status === "running") continue;
+      if (job.result) return { http_status: statusResult.http_status, body: normalizeFerriResult(job.result) };
+      return { http_status: statusResult.http_status, body: normalizeFerriResult(statusResult.body) };
+    }
+
+    return { http_status: startResult.http_status, body: { success: false, msg: "ferri workflow still running", data: { job_id: jobId } } };
+  }
+
+  return callTarget(base, pathname, payload);
+}
+
 async function callPoolTarget(pool, pathname, payload) {
-  if (normalizePool(pool) === POOL_B) {
+  const normalizedPool = normalizePool(pool);
+  if (normalizedPool === POOL_B) {
     return callDuolgTarget(targetApiBaseForPool(POOL_B), pathname, payload);
+  }
+  if (normalizedPool === POOL_C) {
+    return callFerriTarget(targetApiBaseForPool(POOL_C), pathname, payload);
   }
   return callTarget(TARGET_API_BASE, pathname, payload);
 }
@@ -385,6 +449,39 @@ function assertAdminPassword(req, body) {
     error.statusCode = 401;
     throw error;
   }
+}
+
+function acquireActivationSlot() {
+  if (!activationGate.active) {
+    activationGate.active = true;
+    return Promise.resolve(true);
+  }
+
+  return new Promise((resolve, reject) => {
+    const ticket = { resolve, reject, done: false, timer: null };
+    ticket.timer = setTimeout(() => {
+      if (ticket.done) return;
+      ticket.done = true;
+      activationGate.queue = activationGate.queue.filter((item) => item !== ticket);
+      const error = new Error(ACTIVATION_BUSY_MESSAGE);
+      error.busy = true;
+      reject(error);
+    }, ACTIVATION_GATE_WAIT_MS);
+    activationGate.queue.push(ticket);
+  });
+}
+
+function releaseActivationSlot() {
+  while (activationGate.queue.length) {
+    const next = activationGate.queue.shift();
+    if (!next || next.done) continue;
+    next.done = true;
+    clearTimeout(next.timer);
+    activationGate.active = true;
+    next.resolve(true);
+    return;
+  }
+  activationGate.active = false;
 }
 
 const server = http.createServer(async (req, res) => {
@@ -520,23 +617,42 @@ const server = http.createServer(async (req, res) => {
         session_info: sessionInfo,
         force,
       };
-      const primaryResult = await callPoolTarget(pool, "/activate", targetPayload);
-      const fallbackUsed = pool === POOL_A && shouldFallbackActivate(primaryResult.body);
-      const result = fallbackUsed
-        ? await callTarget(FALLBACK_TARGET_API_BASE, "/activate", targetPayload)
-        : primaryResult;
-      const targetMsg = unwrapTargetMessage(result.body);
+      let acquired = false;
+      try {
+        acquired = await acquireActivationSlot();
+      } catch (error) {
+        if (error && error.busy === true) {
+          jsonResponse(res, 200, {
+            success: false,
+            msg: ACTIVATION_BUSY_MESSAGE,
+            data: "",
+          });
+          return;
+        }
+        throw error;
+      }
 
-      jsonResponse(res, 200, {
-        success: Boolean(result.body && result.body.success),
-        msg: targetMsg || "ok",
-        data: {
-          alias_cdkey: alias,
-          target_result: result.body,
-          fallback_used: fallbackUsed,
-          attempt_count: fallbackUsed ? 2 : 1,
-        },
-      });
+      try {
+        const primaryResult = await callPoolTarget(pool, "/activate", targetPayload);
+        const fallbackUsed = pool === POOL_A && shouldFallbackActivate(primaryResult.body);
+        const result = fallbackUsed
+          ? await callTarget(FALLBACK_TARGET_API_BASE, "/activate", targetPayload)
+          : primaryResult;
+        const targetMsg = unwrapTargetMessage(result.body);
+
+        jsonResponse(res, 200, {
+          success: Boolean(result.body && result.body.success),
+          msg: targetMsg || "ok",
+          data: {
+            alias_cdkey: alias,
+            target_result: result.body,
+            fallback_used: fallbackUsed,
+            attempt_count: fallbackUsed ? 2 : 1,
+          },
+        });
+      } finally {
+        if (acquired) releaseActivationSlot();
+      }
       return;
     }
 

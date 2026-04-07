@@ -7,3 +7,11 @@ compatibility_date = "2026-04-01"
 binding = "ALIAS_MAP"
 id = "REPLACE_WITH_KV_ID"
 preview_id = "REPLACE_WITH_KV_PREVIEW_ID"
+
+[[durable_objects.bindings]]
+name = "ACTIVATION_GATE"
+class_name = "ActivationGate"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["ActivationGate"]

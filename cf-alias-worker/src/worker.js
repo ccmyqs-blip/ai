@@ -1,12 +1,15 @@
 ﻿const POOL_A = "A";
 const POOL_B = "B";
+const POOL_C = "C";
 const ALIAS_SEGMENTS_BY_POOL = {
   [POOL_A]: [4, 5, 4, 4],
   [POOL_B]: [4, 4, 5, 4],
+  [POOL_C]: [4, 4, 4, 5],
 };
 const ALIAS_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const POOL_A_ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 const POOL_B_ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}$/;
+const POOL_C_ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}$/;
 const ALIAS_PATTERN = POOL_A_ALIAS_PATTERN;
 const REAL_CDKEY_INDEX_PREFIX = "REAL::";
 const SYSTEM_REINDEX_DONE_KEY = "SYSTEM::REINDEX_DONE";
@@ -14,6 +17,8 @@ const REINDEX_DEFAULT_LIMIT = 20;
 const REINDEX_MAX_LIMIT = 40;
 const MAX_BATCH_COUNT = 100;
 const MAX_PAIR_COUNT = 500;
+const ACTIVATION_GATE_WAIT_MS = 10000;
+const ACTIVATION_BUSY_MESSAGE = "\u5f53\u524d\u540c\u65f6\u5151\u6362\u4eba\u6570\u8fc7\u591a\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u4e00\u6b21";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,6 +57,7 @@ function normalizePool(v) {
   const text = String(v || "").trim().toUpperCase();
   if (!text || text === POOL_A || text === "POOL_A" || text === "1") return POOL_A;
   if (text === POOL_B || text === "POOL_B" || text === "2") return POOL_B;
+  if (text === POOL_C || text === "POOL_C" || text === "3") return POOL_C;
   throw new Error("pool is invalid.");
 }
 
@@ -63,6 +69,7 @@ function detectAliasPool(aliasRaw) {
   const alias = normalizeAlias(aliasRaw);
   if (POOL_A_ALIAS_PATTERN.test(alias)) return POOL_A;
   if (POOL_B_ALIAS_PATTERN.test(alias)) return POOL_B;
+  if (POOL_C_ALIAS_PATTERN.test(alias)) return POOL_C;
   return "";
 }
 
@@ -78,9 +85,9 @@ function mappedPool(mapped, alias) {
 function realCdkeyIndexKey(realCdkey, poolRaw = POOL_A) {
   const normalized = normalizeRealCdkey(realCdkey);
   const pool = normalizePool(poolRaw);
-  return pool === POOL_B
-    ? `${REAL_CDKEY_INDEX_PREFIX}${POOL_B}::${normalized}`
-    : `${REAL_CDKEY_INDEX_PREFIX}${normalized}`;
+  if (pool === POOL_B) return `${REAL_CDKEY_INDEX_PREFIX}${POOL_B}::${normalized}`;
+  if (pool === POOL_C) return `${REAL_CDKEY_INDEX_PREFIX}${POOL_C}::${normalized}`;
+  return `${REAL_CDKEY_INDEX_PREFIX}${normalized}`;
 }
 
 function requiredString(v, name) {
@@ -248,6 +255,10 @@ function poolBTargetApiBase(env) {
   return String(env.POOL_B_TARGET_API_BASE || "https://duolg.com/api").replace(/\/+$/, "");
 }
 
+function poolCTargetApiBase(env) {
+  return String(env.POOL_C_TARGET_API_BASE || "https://ferri.chat/api").replace(/\/+$/, "");
+}
+
 function requiredTargetBase(base, name) {
   if (!base) throw new Error(`${name} is not configured.`);
   return base;
@@ -256,6 +267,7 @@ function requiredTargetBase(base, name) {
 function targetApiBaseForPool(env, poolRaw) {
   const pool = normalizePool(poolRaw);
   if (pool === POOL_B) return requiredTargetBase(poolBTargetApiBase(env), "POOL_B_TARGET_API_BASE");
+  if (pool === POOL_C) return requiredTargetBase(poolCTargetApiBase(env), "POOL_C_TARGET_API_BASE");
   return targetApiBase(env);
 }
 
@@ -323,11 +335,75 @@ async function callDuolgTarget(base, path, payload) {
   return callTarget(base, path, payload);
 }
 
+function normalizeFerriResult(result) {
+  if (!result || typeof result !== "object") return { success: false, msg: "ferri request failed", data: "" };
+  if (result.ok === true || result.success === true) return { success: true, msg: String(result.message || result.msg || "ok"), data: result };
+  return { success: false, msg: String(result.error || result.message || result.msg || "ferri request failed"), data: result };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function callFerriTarget(base, path, payload) {
+  if (path === "/check") {
+    const result = await callTarget(base, "/cards/verify", { code: String(payload.cdkey || "").trim().toUpperCase() });
+    return normalizeFerriResult(result);
+  }
+
+  if (path === "/activate") {
+    const startResult = await callTarget(base, "/workflow/start", {
+      card_code: String(payload.cdkey || "").trim().toUpperCase(),
+      token_snapshot: String(payload.session_info || "").trim(),
+    });
+    const normalizedStart = normalizeFerriResult(startResult);
+    if (!normalizedStart.success) return normalizedStart;
+
+    const jobId = String(startResult?.job?.id || "").trim();
+    if (!jobId) return { success: false, msg: "ferri workflow job id missing", data: startResult };
+
+    for (let i = 0; i < 12; i += 1) {
+      await sleep(1500);
+      const statusResult = await fetchTargetText(`${base}/workflow/status?id=${encodeURIComponent(jobId)}`);
+      const job = statusResult?.job || {};
+      if (job.status === "queued" || job.status === "running") continue;
+      if (job.result) return normalizeFerriResult(job.result);
+      return normalizeFerriResult(statusResult);
+    }
+
+    return { success: false, msg: "ferri workflow still running", data: { job_id: jobId } };
+  }
+
+  return callTarget(base, path, payload);
+}
+
 async function callPoolTarget(env, pool, path, payload) {
-  if (normalizePool(pool) === POOL_B) {
+  const normalizedPool = normalizePool(pool);
+  if (normalizedPool === POOL_B) {
     return callDuolgTarget(targetApiBaseForPool(env, POOL_B), path, payload);
   }
+  if (normalizedPool === POOL_C) {
+    return callFerriTarget(targetApiBaseForPool(env, POOL_C), path, payload);
+  }
   return callTarget(targetApiBase(env), path, payload);
+}
+
+async function parseTargetText(resp) {
+  const text = await resp.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { success: false, msg: text, data: "" };
+  }
+}
+
+async function fetchTargetText(url) {
+  try {
+    const resp = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+    return await parseTargetText(resp);
+  } catch {
+    return { success: false, msg: "target request failed", data: "" };
+  }
 }
 
 async function callTarget(base, path, payload) {
@@ -337,14 +413,7 @@ async function callTarget(base, path, payload) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const text = await resp.text();
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = { success: false, msg: text, data: "" };
-    }
-    return parsed;
+    return await parseTargetText(resp);
   } catch {
     return { success: false, msg: "target request failed", data: "" };
   }
@@ -397,6 +466,7 @@ function adminHtml() {
     <select id="pool">
       <option value="A" selected>熊猫池 (4-5-4-4)</option>
       <option value="B">duolg池 (4-4-5-4)</option>
+      <option value="C">ferri Pool (4-4-4-5)</option>
     </select>
     <label>单个原始CDKEY</label>
     <input id="cdkey" type="text" placeholder="输入一个原始CDKEY"/>
@@ -420,7 +490,7 @@ function adminHtml() {
 
     <label>查询：二次CDKEY -> 原CDKEY</label>
     <div class="row">
-      <input id="lookupAlias" type="text" placeholder="Alias CDKEY, Pool A or Pool B"/>
+      <input id="lookupAlias" type="text" placeholder="Alias CDKEY, Pool A / B / C"/>
       <button id="lookup">查询对应原CDKEY</button>
     </div>
 
@@ -568,6 +638,113 @@ function adminHtml() {
   </script>
 </body>
 </html>`;
+}
+
+
+async function runActivateFromBody(body, env) {
+  const alias = normalizeAlias(requiredString(body.alias_cdkey, "alias_cdkey"));
+  const sessionInfo = requiredString(body.session_info, "session_info");
+  const force = normalizeForceValue(body.force);
+  const pool = detectAliasPool(alias);
+  if (!pool) return json({ success: false, msg: "CDKEY not found", data: "" });
+
+  const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
+  if (!mapped || !mapped.cdkey) return json({ success: false, msg: "CDKEY not found", data: "" });
+
+  const targetPayload = {
+    cdkey: String(mapped.cdkey).trim(),
+    session_info: sessionInfo,
+    force,
+  };
+  const primaryResult = await callPoolTarget(env, pool, "/activate", targetPayload);
+  const fallbackUsed = pool === POOL_A && shouldFallbackActivate(primaryResult);
+  const targetResult = fallbackUsed
+    ? await callTarget(fallbackTargetApiBase(env), "/activate", targetPayload)
+    : primaryResult;
+  return json({
+    success: Boolean(targetResult && targetResult.success),
+    msg: String(targetResult?.msg || "ok"),
+    data: {
+      alias_cdkey: alias,
+      target_result: targetResult,
+      fallback_used: fallbackUsed,
+      attempt_count: fallbackUsed ? 2 : 1,
+    },
+  });
+}
+
+async function runActivateThroughGate(request, env) {
+  if (!env.ACTIVATION_GATE) {
+    const body = await parseBody(request);
+    return runActivateFromBody(body, env);
+  }
+
+  const bodyText = await request.text();
+  const id = env.ACTIVATION_GATE.idFromName("global");
+  const stub = env.ACTIVATION_GATE.get(id);
+  return stub.fetch("https://activation-gate/activate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: bodyText,
+  });
+}
+
+export class ActivationGate {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+    this.active = false;
+    this.queue = [];
+  }
+
+  async fetch(request) {
+    let acquired = false;
+    try {
+      acquired = await this.acquire();
+      const body = await parseBody(request);
+      return await runActivateFromBody(body, this.env);
+    } catch (error) {
+      if (error && error.busy === true) {
+        return json({ success: false, msg: ACTIVATION_BUSY_MESSAGE, data: "" });
+      }
+      return json({ success: false, msg: error.message || "bad request", data: "" }, error.status || 400);
+    } finally {
+      if (acquired) this.release();
+    }
+  }
+
+  acquire() {
+    if (!this.active) {
+      this.active = true;
+      return Promise.resolve(true);
+    }
+
+    return new Promise((resolve, reject) => {
+      const ticket = { resolve, reject, done: false, timer: null };
+      ticket.timer = setTimeout(() => {
+        if (ticket.done) return;
+        ticket.done = true;
+        this.queue = this.queue.filter((item) => item !== ticket);
+        const error = new Error(ACTIVATION_BUSY_MESSAGE);
+        error.busy = true;
+        reject(error);
+      }, ACTIVATION_GATE_WAIT_MS);
+      this.queue.push(ticket);
+    });
+  }
+
+  release() {
+    while (this.queue.length) {
+      const next = this.queue.shift();
+      if (!next || next.done) continue;
+      next.done = true;
+      clearTimeout(next.timer);
+      this.active = true;
+      next.resolve(true);
+      return;
+    }
+    this.active = false;
+  }
 }
 
 export default {
@@ -725,36 +902,7 @@ export default {
       }
 
       if (request.method === "POST" && url.pathname === "/v1/alias/activate") {
-        const body = await parseBody(request);
-        const alias = normalizeAlias(requiredString(body.alias_cdkey, "alias_cdkey"));
-        const sessionInfo = requiredString(body.session_info, "session_info");
-        const force = normalizeForceValue(body.force);
-        const pool = detectAliasPool(alias);
-        if (!pool) return json({ success: false, msg: "CDKEY not found", data: "" });
-
-        const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
-        if (!mapped || !mapped.cdkey) return json({ success: false, msg: "CDKEY not found", data: "" });
-
-        const targetPayload = {
-          cdkey: String(mapped.cdkey).trim(),
-          session_info: sessionInfo,
-          force,
-        };
-        const primaryResult = await callPoolTarget(env, pool, "/activate", targetPayload);
-        const fallbackUsed = pool === POOL_A && shouldFallbackActivate(primaryResult);
-        const targetResult = fallbackUsed
-          ? await callTarget(fallbackTargetApiBase(env), "/activate", targetPayload)
-          : primaryResult;
-        return json({
-          success: Boolean(targetResult && targetResult.success),
-          msg: String(targetResult?.msg || "ok"),
-          data: {
-            alias_cdkey: alias,
-            target_result: targetResult,
-            fallback_used: fallbackUsed,
-            attempt_count: fallbackUsed ? 2 : 1,
-          },
-        });
+        return runActivateThroughGate(request, env);
       }
 
       return json({ success: false, msg: "not found", data: "" }, 404);
