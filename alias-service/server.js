@@ -8,12 +8,20 @@ const crypto = require("crypto");
 const PORT = Number.parseInt(process.env.PORT || "4190", 10);
 const TARGET_API_BASE = (process.env.TARGET_API_BASE || "https://gpt.86gamestore.com/api").replace(/\/+$/, "");
 const FALLBACK_TARGET_API_BASE = (process.env.FALLBACK_TARGET_API_BASE || "https://redeemgpt.com/api").replace(/\/+$/, "");
+const POOL_B_TARGET_API_BASE = (process.env.POOL_B_TARGET_API_BASE || "").replace(/\/+$/, "");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Cc123123.";
 const STORE_FILE = path.join(__dirname, "alias-map.json");
 const ADMIN_PAGE_FILE = path.join(__dirname, "admin.html");
-const ALIAS_SEGMENTS = [4, 5, 4, 4];
+const POOL_A = "A";
+const POOL_B = "B";
+const ALIAS_SEGMENTS_BY_POOL = {
+  [POOL_A]: [4, 5, 4, 4],
+  [POOL_B]: [4, 4, 5, 4],
+};
 const ALIAS_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+const POOL_A_ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+const POOL_B_ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}$/;
+const ALIAS_PATTERN = POOL_A_ALIAS_PATTERN;
 const REAL_CDKEY_INDEX_PREFIX = "REAL::";
 
 function ensureStoreFile() {
@@ -46,9 +54,33 @@ function randomAliasSegment(length) {
   return out;
 }
 
-function generateAlias(existingMap) {
+function normalizePool(value) {
+  const text = String(value || "").trim().toUpperCase();
+  if (!text || text === POOL_A || text === "POOL_A" || text === "1") return POOL_A;
+  if (text === POOL_B || text === "POOL_B" || text === "2") return POOL_B;
+  throw new Error("pool is invalid.");
+}
+
+function detectAliasPool(aliasRaw) {
+  const alias = normalizeAlias(aliasRaw);
+  if (POOL_A_ALIAS_PATTERN.test(alias)) return POOL_A;
+  if (POOL_B_ALIAS_PATTERN.test(alias)) return POOL_B;
+  return "";
+}
+
+function aliasSegmentsForPool(poolRaw) {
+  return ALIAS_SEGMENTS_BY_POOL[normalizePool(poolRaw)];
+}
+
+function mappedPool(mapped, alias) {
+  if (mapped && mapped.pool) return normalizePool(mapped.pool);
+  return detectAliasPool(alias) || POOL_A;
+}
+
+function generateAlias(existingMap, poolRaw = POOL_A) {
+  const segments = aliasSegmentsForPool(poolRaw);
   for (let i = 0; i < 2000; i += 1) {
-    const alias = ALIAS_SEGMENTS.map((segmentLength) => randomAliasSegment(segmentLength)).join("-");
+    const alias = segments.map((segmentLength) => randomAliasSegment(segmentLength)).join("-");
     if (!existingMap[alias]) {
       return alias;
     }
@@ -121,8 +153,10 @@ function normalizeCdkeyForIndex(cdkey) {
   return String(cdkey || "").trim().toUpperCase();
 }
 
-function realCdkeyIndexKey(cdkey) {
-  return `${REAL_CDKEY_INDEX_PREFIX}${normalizeCdkeyForIndex(cdkey)}`;
+function realCdkeyIndexKey(cdkey, poolRaw = POOL_A) {
+  const pool = normalizePool(poolRaw);
+  const normalized = normalizeCdkeyForIndex(cdkey);
+  return pool === POOL_B ? `${REAL_CDKEY_INDEX_PREFIX}${POOL_B}::${normalized}` : `${REAL_CDKEY_INDEX_PREFIX}${normalized}`;
 }
 
 function optionalString(value) {
@@ -135,35 +169,42 @@ function normalizeReindexLimit(value) {
   return Math.max(1, Math.min(40, parsed));
 }
 
-function resolveIndexedAlias(store, cdkey) {
-  const reverseKey = realCdkeyIndexKey(cdkey);
+function resolveIndexedAlias(store, cdkey, poolRaw = POOL_A) {
+  const pool = normalizePool(poolRaw);
+  const reverseKey = realCdkeyIndexKey(cdkey, pool);
   const alias = normalizeAlias(store.index[reverseKey] || "");
-  if (!alias || !ALIAS_PATTERN.test(alias)) return "";
+  if (!alias || detectAliasPool(alias) !== pool) return "";
   const mapped = store.items[alias];
-  if (!mapped || normalizeCdkeyForIndex(mapped.cdkey) !== normalizeCdkeyForIndex(cdkey)) {
+  if (
+    !mapped ||
+    normalizeCdkeyForIndex(mapped.cdkey) !== normalizeCdkeyForIndex(cdkey) ||
+    mappedPool(mapped, alias) !== pool
+  ) {
     delete store.index[reverseKey];
     return "";
   }
   return alias;
 }
 
-function storeAliasWithIndex(store, realCdkey) {
-  const reverseKey = realCdkeyIndexKey(realCdkey);
-  const indexedAlias = resolveIndexedAlias(store, realCdkey);
+function storeAliasWithIndex(store, realCdkey, poolRaw = POOL_A) {
+  const pool = normalizePool(poolRaw);
+  const reverseKey = realCdkeyIndexKey(realCdkey, pool);
+  const indexedAlias = resolveIndexedAlias(store, realCdkey, pool);
   if (indexedAlias) {
-    return { alias: indexedAlias, created: false };
+    return { alias: indexedAlias, created: false, pool };
   }
 
-  const alias = generateAlias(store.items);
+  const alias = generateAlias(store.items, pool);
   const cdkeyTrimmed = String(realCdkey || "").trim();
   const normalizedCdkey = normalizeCdkeyForIndex(cdkeyTrimmed);
   store.items[alias] = {
     cdkey: cdkeyTrimmed,
     cdkey_normalized: normalizedCdkey,
+    pool,
     created_at: new Date().toISOString(),
   };
   store.index[reverseKey] = alias;
-  return { alias, created: true };
+  return { alias, created: true, pool };
 }
 
 function reindexStore(store, cursorRaw, limitRaw) {
@@ -172,7 +213,7 @@ function reindexStore(store, cursorRaw, limitRaw) {
   const limit = normalizeReindexLimit(limitRaw);
 
   const aliasKeys = Object.keys(store.items)
-    .filter((alias) => ALIAS_PATTERN.test(alias))
+    .filter((alias) => Boolean(detectAliasPool(alias)))
     .sort();
   const page = aliasKeys.slice(cursor, cursor + limit);
 
@@ -182,7 +223,7 @@ function reindexStore(store, cursorRaw, limitRaw) {
     const mapped = store.items[alias];
     if (!mapped || !mapped.cdkey) continue;
     processed += 1;
-    const reverseKey = realCdkeyIndexKey(mapped.cdkey);
+    const reverseKey = realCdkeyIndexKey(mapped.cdkey, detectAliasPool(alias));
     if (store.index[reverseKey] !== alias) {
       store.index[reverseKey] = alias;
       fixed += 1;
@@ -197,6 +238,15 @@ function reindexStore(store, cursorRaw, limitRaw) {
     next_cursor: done ? "" : String(nextCursorNum),
     done,
   };
+}
+
+function targetApiBaseForPool(poolRaw) {
+  const pool = normalizePool(poolRaw);
+  if (pool === POOL_B) {
+    if (!POOL_B_TARGET_API_BASE) throw new Error("POOL_B_TARGET_API_BASE is not configured.");
+    return POOL_B_TARGET_API_BASE;
+  }
+  return TARGET_API_BASE;
 }
 
 function shouldFallbackActivate(targetBody) {
@@ -308,7 +358,7 @@ const server = http.createServer(async (req, res) => {
       assertAdminPassword(req, body);
       const realCdkey = requiredString(body.cdkey, "cdkey");
       const store = readStore();
-      const result = storeAliasWithIndex(store, realCdkey);
+      const result = storeAliasWithIndex(store, realCdkey, body.pool);
       writeStore(store);
 
       jsonResponse(res, 200, {
@@ -317,6 +367,7 @@ const server = http.createServer(async (req, res) => {
         data: {
           alias_cdkey: result.alias,
           created: result.created,
+          pool: result.pool,
         },
       });
       return;
@@ -342,7 +393,8 @@ const server = http.createServer(async (req, res) => {
       const body = await parseJsonBody(req);
       const alias = normalizeAlias(requiredString(body.alias_cdkey, "alias_cdkey"));
 
-      if (!ALIAS_PATTERN.test(alias)) {
+      const pool = detectAliasPool(alias);
+      if (!pool) {
         throw new Error("alias_cdkey format invalid.");
       }
 
@@ -357,7 +409,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const result = await callTarget(TARGET_API_BASE, "/check", {
+      const result = await callTarget(targetApiBaseForPool(pool), "/check", {
         cdkey: normalizeCdkey(mapped.cdkey),
       });
       const targetMsg = unwrapTargetMessage(result.body);
@@ -379,7 +431,8 @@ const server = http.createServer(async (req, res) => {
       const sessionInfo = requiredString(body.session_info, "session_info");
       const force = normalizeForceValue(body.force);
 
-      if (!ALIAS_PATTERN.test(alias)) {
+      const pool = detectAliasPool(alias);
+      if (!pool) {
         throw new Error("alias_cdkey format invalid.");
       }
 
@@ -399,8 +452,8 @@ const server = http.createServer(async (req, res) => {
         session_info: sessionInfo,
         force,
       };
-      const primaryResult = await callTarget(TARGET_API_BASE, "/activate", targetPayload);
-      const fallbackUsed = shouldFallbackActivate(primaryResult.body);
+      const primaryResult = await callTarget(targetApiBaseForPool(pool), "/activate", targetPayload);
+      const fallbackUsed = pool === POOL_A && shouldFallbackActivate(primaryResult.body);
       const result = fallbackUsed
         ? await callTarget(FALLBACK_TARGET_API_BASE, "/activate", targetPayload)
         : primaryResult;

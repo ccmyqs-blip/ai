@@ -40,11 +40,13 @@
         font-weight: 600;
       }
       input,
+      select,
       button {
         width: 100%;
         box-sizing: border-box;
       }
-      input {
+      input,
+      select {
         border: 1px solid #3754a5;
         background: #0e1630;
         color: #fff;
@@ -96,6 +98,12 @@
       <label for="password">管理密码</label>
       <input id="password" type="password" placeholder="请输入管理密码" autocomplete="off" />
 
+
+      <label for="pool">CDKEY Pool</label>
+      <select id="pool">
+        <option value="A" selected>Pool A (current 4-5-4-4)</option>
+        <option value="B">Pool B (new 4-4-5-4)</option>
+      </select>
       <label for="cdkey">原始CDKEY</label>
       <input id="cdkey" type="text" placeholder="请输入套壳网站原CDKEY" autocomplete="off" />
 
@@ -112,6 +120,7 @@
       const copyBtn = document.getElementById("copy-btn");
       const passwordInput = document.getElementById("password");
       const cdkeyInput = document.getElementById("cdkey");
+      const poolInput = document.getElementById("pool");
       const resultNode = document.getElementById("result");
       let lastAlias = "";
 
@@ -145,7 +154,7 @@
               "Content-Type": "application/json",
               "X-Admin-Password": adminPassword,
             },
-            body: JSON.stringify({ cdkey }),
+            body: JSON.stringify({ cdkey, pool: poolInput.value || "A" }),
           });
 
           const payload = await response.json();
@@ -156,7 +165,7 @@
 
           lastAlias = payload.data?.alias_cdkey || "";
           const created = payload.data?.created === true;
-          showResult(`处理完成\n原CDKEY: ${cdkey}\n二次CDKEY: ${lastAlias}\n状态: ${created ? "新建" : "已存在"}`, true);
+          showResult(`Done\nPool: ${payload.data?.pool || poolInput.value || "A"}\nOriginal CDKEY: ${cdkey}\nAlias CDKEY: ${lastAlias}\nStatus: ${created ? "Created" : "Exists"}`, true);
         } catch (error) {
           showResult(error.message || "请求失败", false);
         } finally {
@@ -172,9 +181,9 @@
 
         try {
           await navigator.clipboard.writeText(lastAlias);
-          showResult(`已复制: ${lastAlias}`, true);
+          showResult(`Copied: ${lastAlias}`, true);
         } catch {
-          showResult(`复制失败，请手动复制: ${lastAlias}`, false);
+          showResult(`Copy failed, copy manually: ${lastAlias}`, false);
         }
       });
     </script>

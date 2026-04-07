@@ -1,6 +1,13 @@
-﻿const ALIAS_SEGMENTS = [4, 5, 4, 4];
+﻿const POOL_A = "A";
+const POOL_B = "B";
+const ALIAS_SEGMENTS_BY_POOL = {
+  [POOL_A]: [4, 5, 4, 4],
+  [POOL_B]: [4, 4, 5, 4],
+};
 const ALIAS_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+const POOL_A_ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+const POOL_B_ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}$/;
+const ALIAS_PATTERN = POOL_A_ALIAS_PATTERN;
 const REAL_CDKEY_INDEX_PREFIX = "REAL::";
 const SYSTEM_REINDEX_DONE_KEY = "SYSTEM::REINDEX_DONE";
 const REINDEX_DEFAULT_LIMIT = 20;
@@ -41,8 +48,39 @@ function normalizeRealCdkey(v) {
   return String(v || "").trim().toUpperCase();
 }
 
-function realCdkeyIndexKey(realCdkey) {
-  return `${REAL_CDKEY_INDEX_PREFIX}${normalizeRealCdkey(realCdkey)}`;
+function normalizePool(v) {
+  const text = String(v || "").trim().toUpperCase();
+  if (!text || text === POOL_A || text === "POOL_A" || text === "1") return POOL_A;
+  if (text === POOL_B || text === "POOL_B" || text === "2") return POOL_B;
+  throw new Error("pool is invalid.");
+}
+
+function aliasSegmentsForPool(poolRaw) {
+  return ALIAS_SEGMENTS_BY_POOL[normalizePool(poolRaw)];
+}
+
+function detectAliasPool(aliasRaw) {
+  const alias = normalizeAlias(aliasRaw);
+  if (POOL_A_ALIAS_PATTERN.test(alias)) return POOL_A;
+  if (POOL_B_ALIAS_PATTERN.test(alias)) return POOL_B;
+  return "";
+}
+
+function isValidAliasForPool(alias, pool) {
+  return detectAliasPool(alias) === normalizePool(pool);
+}
+
+function mappedPool(mapped, alias) {
+  if (mapped && mapped.pool) return normalizePool(mapped.pool);
+  return detectAliasPool(alias) || POOL_A;
+}
+
+function realCdkeyIndexKey(realCdkey, poolRaw = POOL_A) {
+  const normalized = normalizeRealCdkey(realCdkey);
+  const pool = normalizePool(poolRaw);
+  return pool === POOL_B
+    ? `${REAL_CDKEY_INDEX_PREFIX}${POOL_B}::${normalized}`
+    : `${REAL_CDKEY_INDEX_PREFIX}${normalized}`;
 }
 
 function requiredString(v, name) {
@@ -94,39 +132,56 @@ function randomAliasSegment(length) {
   return out;
 }
 
-async function generateUniqueAlias(env) {
+async function generateUniqueAlias(env, poolRaw = POOL_A) {
+  const pool = normalizePool(poolRaw);
+  const segments = aliasSegmentsForPool(pool);
   for (let i = 0; i < 3000; i += 1) {
-    const alias = ALIAS_SEGMENTS.map((n) => randomAliasSegment(n)).join("-");
+    const alias = segments.map((n) => randomAliasSegment(n)).join("-");
     const exists = await env.ALIAS_MAP.get(alias);
     if (!exists) return alias;
   }
-  throw new Error("无法生成不重复二次CDKEY");
+  throw new Error("Unable to generate unique alias CDKEY.");
 }
 
-async function storeAlias(env, realCdkey) {
+function mappingMatchesPool(mapped, alias, poolRaw) {
+  if (!mapped || typeof mapped !== "object") return false;
+  try {
+    return mappedPool(mapped, alias) === normalizePool(poolRaw);
+  } catch {
+    return false;
+  }
+}
+
+async function storeAlias(env, realCdkey, poolRaw = POOL_A) {
+  const pool = normalizePool(poolRaw);
   const normalizedCdkey = normalizeRealCdkey(realCdkey);
-  const reverseKey = realCdkeyIndexKey(normalizedCdkey);
+  const reverseKey = realCdkeyIndexKey(normalizedCdkey, pool);
   const indexedAlias = normalizeAlias(await env.ALIAS_MAP.get(reverseKey));
-  if (indexedAlias && ALIAS_PATTERN.test(indexedAlias)) {
+  if (indexedAlias && isValidAliasForPool(indexedAlias, pool)) {
     const mapped = await env.ALIAS_MAP.get(indexedAlias, { type: "json" });
-    if (mapped && normalizeRealCdkey(mapped.cdkey) === normalizedCdkey) {
-      return { alias: indexedAlias, created: false };
+    if (
+      mapped &&
+      normalizeRealCdkey(mapped.cdkey) === normalizedCdkey &&
+      mappingMatchesPool(mapped, indexedAlias, pool)
+    ) {
+      return { alias: indexedAlias, created: false, pool };
     }
     await env.ALIAS_MAP.delete(reverseKey);
   }
 
-  const alias = await generateUniqueAlias(env);
+  const alias = await generateUniqueAlias(env, pool);
   const realCdkeyTrimmed = String(realCdkey || "").trim();
   await env.ALIAS_MAP.put(
     alias,
     JSON.stringify({
       cdkey: realCdkeyTrimmed,
       cdkey_normalized: normalizedCdkey,
+      pool,
       created_at: new Date().toISOString(),
     })
   );
   await env.ALIAS_MAP.put(reverseKey, alias);
-  return { alias, created: true };
+  return { alias, created: true, pool };
 }
 
 async function reindexAliasMappings(env, cursorRaw, limitRaw) {
@@ -138,7 +193,8 @@ async function reindexAliasMappings(env, cursorRaw, limitRaw) {
   let fixed = 0;
   for (const key of listed.keys || []) {
     const alias = String(key?.name || "");
-    if (!ALIAS_PATTERN.test(alias)) continue;
+    const pool = detectAliasPool(alias);
+    if (!pool) continue;
     processed += 1;
 
     const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
@@ -147,7 +203,7 @@ async function reindexAliasMappings(env, cursorRaw, limitRaw) {
     const normalizedCdkey = normalizeRealCdkey(mapped.cdkey);
     if (!normalizedCdkey) continue;
 
-    const reverseKey = realCdkeyIndexKey(normalizedCdkey);
+    const reverseKey = realCdkeyIndexKey(normalizedCdkey, pool);
     await env.ALIAS_MAP.put(reverseKey, alias);
     fixed += 1;
   }
@@ -186,6 +242,21 @@ function targetApiBase(env) {
 
 function fallbackTargetApiBase(env) {
   return String(env.FALLBACK_TARGET_API_BASE || "https://redeemgpt.com/api").replace(/\/+$/, "");
+}
+
+function poolBTargetApiBase(env) {
+  return String(env.POOL_B_TARGET_API_BASE || "").replace(/\/+$/, "");
+}
+
+function requiredTargetBase(base, name) {
+  if (!base) throw new Error(`${name} is not configured.`);
+  return base;
+}
+
+function targetApiBaseForPool(env, poolRaw) {
+  const pool = normalizePool(poolRaw);
+  if (pool === POOL_B) return requiredTargetBase(poolBTargetApiBase(env), "POOL_B_TARGET_API_BASE");
+  return targetApiBase(env);
 }
 
 function shouldFallbackActivate(result) {
@@ -239,8 +310,8 @@ function adminHtml() {
     h1{margin:0 0 10px}
     p{margin:0 0 14px;color:#a9b9ef}
     label{display:block;margin:10px 0 6px;font-weight:700}
-    input,textarea,button{width:100%;box-sizing:border-box;border-radius:10px;padding:10px 12px}
-    input,textarea{border:1px solid #3754a5;background:#0e1630;color:#fff}
+    input,textarea,button,select{width:100%;box-sizing:border-box;border-radius:10px;padding:10px 12px}
+    input,textarea,select{border:1px solid #3754a5;background:#0e1630;color:#fff}
     textarea{min-height:120px;resize:vertical}
     button{border:none;background:linear-gradient(135deg,#21d4fd,#2962ff);color:#fff;font-weight:700;cursor:pointer}
     .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -258,6 +329,12 @@ function adminHtml() {
     <label>管理密码</label>
     <input id="pwd" type="password" placeholder="请输入管理密码" autocomplete="new-password"/>
 
+
+    <label>CDKEY Pool</label>
+    <select id="pool">
+      <option value="A" selected>Pool A (current 4-5-4-4)</option>
+      <option value="B">Pool B (new 4-4-5-4)</option>
+    </select>
     <label>单个原始CDKEY</label>
     <input id="cdkey" type="text" placeholder="输入一个原始CDKEY"/>
     <div class="row3">
@@ -280,7 +357,7 @@ function adminHtml() {
 
     <label>查询：二次CDKEY -> 原CDKEY</label>
     <div class="row">
-      <input id="lookupAlias" type="text" placeholder="输入二次CDKEY，例如 5S8F-S888G-5G5G-55HH"/>
+      <input id="lookupAlias" type="text" placeholder="Alias CDKEY, Pool A or Pool B"/>
       <button id="lookup">查询对应原CDKEY</button>
     </div>
 
@@ -299,6 +376,7 @@ function adminHtml() {
     const res=document.getElementById('res');
 
     function show(t){res.textContent=t;}
+    function getPool(){return document.getElementById('pool').value || 'A';}
 
     async function request(path, payload){
       const p=document.getElementById('pwd').value.trim();
@@ -317,7 +395,7 @@ function adminHtml() {
 
       show(batchMode?'批量生成中...':'生成中...');
       const path=batchMode?'/v1/admin/alias/create-batch':'/v1/admin/alias/create';
-      const payload=batchMode?{cdkey:c,count}:{cdkey:c};
+      const payload=batchMode?{cdkey:c,count,pool:getPool()}:{cdkey:c,pool:getPool()};
       const j=await request(path,payload);
       if(!j) return;
 
@@ -327,14 +405,14 @@ function adminHtml() {
         lastPairList=[];
         const created=(j.data&&j.data.created)===true;
         const requested=(j.data&&j.data.requested_count)||count;
-        show('一对一模式处理完成\\n原CDKEY: '+c+'\\n二次CDKEY: '+lastAlias+'\\n状态: '+(created?'新建':'已存在')+'\\n请求数量: '+requested+'（一对一模式下仅保留1个）');
+        show('Done\\nPool: '+(j.data.pool||getPool())+'\\nOriginal CDKEY: '+c+'\\nAlias CDKEY: '+lastAlias+'\\nStatus: '+(created?'Created':'Exists')+'\\nRequested count: '+requested+' (one-to-one mode keeps one alias)');
         return;
       }
 
       lastAlias=j.data.alias_cdkey||'';
       lastAliasList=lastAlias?[lastAlias]:[];
       lastPairList=[];
-      show('处理完成\\n原CDKEY: '+c+'\\n二次CDKEY: '+lastAlias+'\\n状态: '+((j.data&&j.data.created)===true?'新建':'已存在'));
+      show('Done\\nPool: '+(j.data.pool||getPool())+'\\nOriginal CDKEY: '+c+'\\nAlias CDKEY: '+lastAlias+'\\nStatus: '+((j.data&&j.data.created)===true?'Created':'Exists'));
     }
 
     async function doPairBatch(){
@@ -345,15 +423,15 @@ function adminHtml() {
       if(!lines.length){show('请先输入原始CDKEY列表');return;}
 
       show('一对一批量生成中...');
-      const j=await request('/v1/admin/alias/create-from-list',{cdkeys:lines});
+      const j=await request('/v1/admin/alias/create-from-list',{cdkeys:lines,pool:getPool()});
       if(!j) return;
 
       lastPairList=(j.data&&j.data.pairs)||[];
       lastAliasList=lastPairList.map(v=>v.alias_cdkey);
       lastAlias=lastAliasList[0]||'';
 
-      const rows=lastPairList.map(v=>v.cdkey+' => '+v.alias_cdkey+' ['+(v.created?'新建':'已存在')+']');
-      show('一对一批量处理完成\\n数量: '+lastPairList.length+'\\n\\n'+rows.join('\\n'));
+      const rows=lastPairList.map(v=>v.cdkey+' => '+v.alias_cdkey+' ['+(v.created?'Created':'Exists')+'] ['+(v.pool||getPool())+']');
+      show('Pair batch done\\nPool: '+((j.data&&j.data.pool)||getPool())+'\\nCount: '+lastPairList.length+'\\n\\n'+rows.join('\\n'));
     }
 
     async function runReindexFlow(manual){
@@ -397,7 +475,7 @@ function adminHtml() {
       const j=await request('/v1/admin/alias/lookup',{alias_cdkey:alias});
       if(!j) return;
       const item=j.data||{};
-      show('查询成功\\n二次CDKEY: '+(item.alias_cdkey||'')+'\\n原CDKEY: '+(item.cdkey||''));
+      show('Lookup ok\\nPool: '+(item.pool||'')+'\\nAlias CDKEY: '+(item.alias_cdkey||'')+'\\nOriginal CDKEY: '+(item.cdkey||''));
     }
 
     document.getElementById('create').onclick=()=>doCreate(false);
@@ -446,7 +524,7 @@ export default {
         return json({
           success: true,
           msg: "ok",
-          data: { target_api_base: targetApiBase(env) },
+          data: { target_api_base: targetApiBase(env), pool_b_configured: Boolean(poolBTargetApiBase(env)) },
         });
       }
 
@@ -457,11 +535,11 @@ export default {
         const body = await parseBody(request);
         assertAdminPassword(request, body, env);
         const realCdkey = requiredString(body.cdkey, "cdkey");
-        const result = await storeAlias(env, realCdkey);
+        const result = await storeAlias(env, realCdkey, body.pool);
         return json({
           success: true,
           msg: result.created ? "alias created" : "alias exists",
-          data: { alias_cdkey: result.alias, created: result.created },
+          data: { alias_cdkey: result.alias, created: result.created, pool: result.pool },
         });
       }
 
@@ -469,10 +547,11 @@ export default {
         const body = await parseBody(request);
         assertAdminPassword(request, body, env);
         const realCdkey = requiredString(body.cdkey, "cdkey");
+        const pool = normalizePool(body.pool);
         const countRaw = Number.parseInt(String(body.count || "1"), 10);
         const count = Math.max(1, Math.min(MAX_BATCH_COUNT, Number.isNaN(countRaw) ? 1 : countRaw));
 
-        const result = await storeAlias(env, realCdkey);
+        const result = await storeAlias(env, realCdkey, pool);
         const aliases = [result.alias];
 
         return json({
@@ -483,6 +562,7 @@ export default {
             requested_count: count,
             alias_cdkeys: aliases,
             created: result.created,
+            pool: result.pool,
           },
         });
       }
@@ -503,20 +583,21 @@ export default {
         }
 
         if (cdkeys.length > MAX_PAIR_COUNT) {
-          throw new Error(`单次最多处理 ${MAX_PAIR_COUNT} 个原始CDKEY`);
+          throw new Error(`Maximum ${MAX_PAIR_COUNT} original CDKEYs per request.`);
         }
 
+        const pool = normalizePool(body.pool);
         const pairs = [];
         for (const cdkey of cdkeys) {
-          const result = await storeAlias(env, cdkey);
-          pairs.push({ cdkey, alias_cdkey: result.alias, created: result.created });
+          const result = await storeAlias(env, cdkey, pool);
+          pairs.push({ cdkey, alias_cdkey: result.alias, created: result.created, pool: result.pool });
         }
         const createdCount = pairs.filter((v) => v.created).length;
 
         return json({
           success: true,
           msg: "pair batch processed",
-          data: { count: pairs.length, created_count: createdCount, existing_count: pairs.length - createdCount, pairs },
+          data: { count: pairs.length, created_count: createdCount, existing_count: pairs.length - createdCount, pool, pairs },
         });
       }
 
@@ -524,13 +605,14 @@ export default {
         const body = await parseBody(request);
         assertAdminPassword(request, body, env);
         const alias = normalizeAlias(requiredString(body.alias_cdkey, "alias_cdkey"));
-        if (!ALIAS_PATTERN.test(alias)) {
-          return json({ success: false, msg: "未检测到CDKEY", data: "" });
+        const pool = detectAliasPool(alias);
+        if (!pool) {
+          return json({ success: false, msg: "CDKEY not found", data: "" });
         }
 
         const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
         if (!mapped || !mapped.cdkey) {
-          return json({ success: false, msg: "未检测到CDKEY", data: "" });
+          return json({ success: false, msg: "CDKEY not found", data: "" });
         }
 
         return json({
@@ -539,6 +621,7 @@ export default {
           data: {
             alias_cdkey: alias,
             cdkey: String(mapped.cdkey).trim(),
+            pool: mappedPool(mapped, alias),
             created_at: mapped.created_at || "",
           },
         });
@@ -564,12 +647,13 @@ export default {
       if (request.method === "POST" && url.pathname === "/v1/alias/check") {
         const body = await parseBody(request);
         const alias = normalizeAlias(requiredString(body.alias_cdkey, "alias_cdkey"));
-        if (!ALIAS_PATTERN.test(alias)) return json({ success: false, msg: "未检测到CDKEY", data: "" });
+        const pool = detectAliasPool(alias);
+        if (!pool) return json({ success: false, msg: "CDKEY not found", data: "" });
 
         const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
-        if (!mapped || !mapped.cdkey) return json({ success: false, msg: "未检测到CDKEY", data: "" });
+        if (!mapped || !mapped.cdkey) return json({ success: false, msg: "CDKEY not found", data: "" });
 
-        const targetResult = await callTarget(targetApiBase(env), "/check", { cdkey: String(mapped.cdkey).trim() });
+        const targetResult = await callTarget(targetApiBaseForPool(env, pool), "/check", { cdkey: String(mapped.cdkey).trim() });
         return json({
           success: Boolean(targetResult && targetResult.success),
           msg: String(targetResult?.msg || "ok"),
@@ -582,18 +666,19 @@ export default {
         const alias = normalizeAlias(requiredString(body.alias_cdkey, "alias_cdkey"));
         const sessionInfo = requiredString(body.session_info, "session_info");
         const force = normalizeForceValue(body.force);
-        if (!ALIAS_PATTERN.test(alias)) return json({ success: false, msg: "未检测到CDKEY", data: "" });
+        const pool = detectAliasPool(alias);
+        if (!pool) return json({ success: false, msg: "CDKEY not found", data: "" });
 
         const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
-        if (!mapped || !mapped.cdkey) return json({ success: false, msg: "未检测到CDKEY", data: "" });
+        if (!mapped || !mapped.cdkey) return json({ success: false, msg: "CDKEY not found", data: "" });
 
         const targetPayload = {
           cdkey: String(mapped.cdkey).trim(),
           session_info: sessionInfo,
           force,
         };
-        const primaryResult = await callTarget(targetApiBase(env), "/activate", targetPayload);
-        const fallbackUsed = shouldFallbackActivate(primaryResult);
+        const primaryResult = await callTarget(targetApiBaseForPool(env, pool), "/activate", targetPayload);
+        const fallbackUsed = pool === POOL_A && shouldFallbackActivate(primaryResult);
         const targetResult = fallbackUsed
           ? await callTarget(fallbackTargetApiBase(env), "/activate", targetPayload)
           : primaryResult;
