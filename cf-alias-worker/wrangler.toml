@@ -1,12 +1,12 @@
-﻿name = "alias-service"
+name = "alias-service"
 main = "src/worker.js"
 compatibility_date = "2026-04-01"
 
 # Fill these after creating KV namespace
 [[kv_namespaces]]
 binding = "ALIAS_MAP"
-id = "REPLACE_WITH_KV_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_ID"
+id = "d554404c718c481ab8ccddec3d1f608e"
+preview_id = "d554404c718c481ab8ccddec3d1f608e"
 
 [[durable_objects.bindings]]
 name = "ACTIVATION_GATE"
