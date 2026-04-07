@@ -14,4 +14,4 @@ class_name = "ActivationGate"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["ActivationGate"]
+new_sqlite_classes = ["ActivationGate"]
