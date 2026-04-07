@@ -180,8 +180,23 @@ function parseCdkeyLines(text) {
     .filter((line) => line.length > 0);
 }
 
-async function callTarget(env, path, payload) {
-  const base = String(env.TARGET_API_BASE || "https://gpt.86gamestore.com/api").replace(/\/+$/, "");
+function targetApiBase(env) {
+  return String(env.TARGET_API_BASE || "https://gpt.86gamestore.com/api").replace(/\/+$/, "");
+}
+
+function fallbackTargetApiBase(env) {
+  return String(env.FALLBACK_TARGET_API_BASE || "https://redeemgpt.com/api").replace(/\/+$/, "");
+}
+
+function shouldFallbackActivate(result) {
+  if (!result || result.success === true) return false;
+  const msg = String(result.msg || "");
+  return ["无法提交", "暂时无法提交", "礼物不足", "库存不足"].some((keyword) =>
+    msg.includes(keyword)
+  );
+}
+
+async function callTarget(base, path, payload) {
   try {
     const resp = await fetch(`${base}${path}`, {
       method: "POST",
@@ -431,7 +446,7 @@ export default {
         return json({
           success: true,
           msg: "ok",
-          data: { target_api_base: String(env.TARGET_API_BASE || "https://gpt.86gamestore.com/api") },
+          data: { target_api_base: targetApiBase(env) },
         });
       }
 
@@ -554,7 +569,7 @@ export default {
         const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
         if (!mapped || !mapped.cdkey) return json({ success: false, msg: "未检测到CDKEY", data: "" });
 
-        const targetResult = await callTarget(env, "/check", { cdkey: String(mapped.cdkey).trim() });
+        const targetResult = await callTarget(targetApiBase(env), "/check", { cdkey: String(mapped.cdkey).trim() });
         return json({
           success: Boolean(targetResult && targetResult.success),
           msg: String(targetResult?.msg || "ok"),
@@ -572,15 +587,25 @@ export default {
         const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
         if (!mapped || !mapped.cdkey) return json({ success: false, msg: "未检测到CDKEY", data: "" });
 
-        const targetResult = await callTarget(env, "/activate", {
+        const targetPayload = {
           cdkey: String(mapped.cdkey).trim(),
           session_info: sessionInfo,
           force,
-        });
+        };
+        const primaryResult = await callTarget(targetApiBase(env), "/activate", targetPayload);
+        const fallbackUsed = shouldFallbackActivate(primaryResult);
+        const targetResult = fallbackUsed
+          ? await callTarget(fallbackTargetApiBase(env), "/activate", targetPayload)
+          : primaryResult;
         return json({
           success: Boolean(targetResult && targetResult.success),
           msg: String(targetResult?.msg || "ok"),
-          data: { alias_cdkey: alias, target_result: targetResult },
+          data: {
+            alias_cdkey: alias,
+            target_result: targetResult,
+            fallback_used: fallbackUsed,
+            attempt_count: fallbackUsed ? 2 : 1,
+          },
         });
       }
 

@@ -7,6 +7,7 @@ const crypto = require("crypto");
 
 const PORT = Number.parseInt(process.env.PORT || "4190", 10);
 const TARGET_API_BASE = (process.env.TARGET_API_BASE || "https://gpt.86gamestore.com/api").replace(/\/+$/, "");
+const FALLBACK_TARGET_API_BASE = (process.env.FALLBACK_TARGET_API_BASE || "https://redeemgpt.com/api").replace(/\/+$/, "");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "Cc123123.";
 const STORE_FILE = path.join(__dirname, "alias-map.json");
 const ADMIN_PAGE_FILE = path.join(__dirname, "admin.html");
@@ -198,9 +199,17 @@ function reindexStore(store, cursorRaw, limitRaw) {
   };
 }
 
-async function callTarget(pathname, payload) {
+function shouldFallbackActivate(targetBody) {
+  if (!targetBody || targetBody.success === true) return false;
+  const msg = String(targetBody.msg || "");
+  return ["无法提交", "暂时无法提交", "礼物不足", "库存不足"].some((keyword) =>
+    msg.includes(keyword)
+  );
+}
+
+async function callTarget(base, pathname, payload) {
   try {
-    const response = await fetch(`${TARGET_API_BASE}${pathname}`, {
+    const response = await fetch(`${base}${pathname}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -348,7 +357,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const result = await callTarget("/check", {
+      const result = await callTarget(TARGET_API_BASE, "/check", {
         cdkey: normalizeCdkey(mapped.cdkey),
       });
       const targetMsg = unwrapTargetMessage(result.body);
@@ -385,11 +394,16 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const result = await callTarget("/activate", {
+      const targetPayload = {
         cdkey: normalizeCdkey(mapped.cdkey),
         session_info: sessionInfo,
         force,
-      });
+      };
+      const primaryResult = await callTarget(TARGET_API_BASE, "/activate", targetPayload);
+      const fallbackUsed = shouldFallbackActivate(primaryResult.body);
+      const result = fallbackUsed
+        ? await callTarget(FALLBACK_TARGET_API_BASE, "/activate", targetPayload)
+        : primaryResult;
       const targetMsg = unwrapTargetMessage(result.body);
 
       jsonResponse(res, 200, {
@@ -398,6 +412,8 @@ const server = http.createServer(async (req, res) => {
         data: {
           alias_cdkey: alias,
           target_result: result.body,
+          fallback_used: fallbackUsed,
+          attempt_count: fallbackUsed ? 2 : 1,
         },
       });
       return;
