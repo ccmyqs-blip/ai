@@ -131,6 +131,10 @@
         <button id="lookup-batch-btn" type="button">批量查询对应原CDKEY</button>
         <button id="copy-lookup-batch-btn" class="secondary" type="button">复制批量反查结果</button>
       </div>
+      <div class="row">
+        <button id="copy-lookup-originals-btn" class="secondary" type="button">仅复制原CDKEY列表</button>
+        <button class="secondary" type="button" disabled>仅复制查询成功项</button>
+      </div>
 
       <pre id="result" class="result">等待操作...</pre>
     </main>
@@ -141,6 +145,7 @@
       const lookupBtn = document.getElementById("lookup-btn");
       const lookupBatchBtn = document.getElementById("lookup-batch-btn");
       const copyLookupBatchBtn = document.getElementById("copy-lookup-batch-btn");
+      const copyLookupOriginalsBtn = document.getElementById("copy-lookup-originals-btn");
       const passwordInput = document.getElementById("password");
       const cdkeyInput = document.getElementById("cdkey");
       const lookupAliasInput = document.getElementById("lookup-alias");
@@ -149,6 +154,7 @@
       const resultNode = document.getElementById("result");
       let lastAlias = "";
       let lastLookupBatchText = "";
+      let lastLookupOriginalList = [];
 
       function showResult(text, ok) {
         resultNode.textContent = text;
@@ -216,6 +222,7 @@
 
         lookupBtn.disabled = true;
         lastLookupBatchText = "";
+        lastLookupOriginalList = [];
         showResult("查询中...", true);
 
         try {
@@ -284,6 +291,7 @@
             return `${alias} => ${original}${pool} [${item.found ? "Found" : "NotFound"}]`;
           });
           lastLookupBatchText = rows.join("\n");
+          lastLookupOriginalList = items.filter((item) => item.found && item.cdkey).map((item) => item.cdkey);
           showResult(`Lookup batch done\nCount: ${payload.data?.count || items.length}\nFound: ${payload.data?.found_count || 0}\nMissing: ${payload.data?.missing_count || 0}\n\n${lastLookupBatchText}`, true);
         } catch (error) {
           showResult(error.message || "请求失败", false);
@@ -317,6 +325,21 @@
           showResult("已复制批量反查结果", true);
         } catch {
           showResult(`复制失败，请手动复制\n${lastLookupBatchText}`, false);
+        }
+      });
+
+      copyLookupOriginalsBtn.addEventListener("click", async () => {
+        if (!lastLookupOriginalList.length) {
+          showResult("暂无可复制原CDKEY列表", false);
+          return;
+        }
+
+        const out = lastLookupOriginalList.join("\n");
+        try {
+          await navigator.clipboard.writeText(out);
+          showResult(`已复制原CDKEY列表，共 ${lastLookupOriginalList.length} 个`, true);
+        } catch {
+          showResult(`复制失败，请手动复制\n${out}`, false);
         }
       });
     </script>

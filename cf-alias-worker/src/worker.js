@@ -520,6 +520,10 @@ function adminHtml() {
       <button id="lookupBatch">批量查询对应原CDKEY</button>
       <button id="copyLookupBatch" class="secondary">复制批量反查结果</button>
     </div>
+    <div class="row" style="margin-top:10px">
+      <button id="copyLookupOriginals" class="secondary">仅复制原CDKEY列表</button>
+      <button id="noopLookup" class="secondary" disabled>仅复制查询成功项</button>
+    </div>
 
     <div class="row" style="margin-top:10px">
       <button id="copy" class="secondary">复制单个结果</button>
@@ -534,6 +538,7 @@ function adminHtml() {
     let lastAliasList=[];
     let lastPairList=[];
     let lastLookupBatchText='';
+    let lastLookupOriginalList=[];
     const res=document.getElementById('res');
 
     function show(t){res.textContent=t;}
@@ -637,6 +642,7 @@ function adminHtml() {
       if(!j) return;
       const item=j.data||{};
       lastLookupBatchText='';
+      lastLookupOriginalList=[];
       show('Lookup ok\\nPool: '+(item.pool||'')+'\\nAlias CDKEY: '+(item.alias_cdkey||'')+'\\nOriginal CDKEY: '+(item.cdkey||''));
     }
 
@@ -657,6 +663,7 @@ function adminHtml() {
         return alias+' => '+original+pool+' ['+(item.found?'Found':'NotFound')+']';
       });
       lastLookupBatchText=rows.join('\\n');
+      lastLookupOriginalList=items.filter(item=>item.found&&item.cdkey).map(item=>item.cdkey);
       show('Lookup batch done\\nCount: '+(j.data&&j.data.count||items.length)+'\\nFound: '+(j.data&&j.data.found_count||0)+'\\nMissing: '+(j.data&&j.data.missing_count||0)+'\\n\\n'+lastLookupBatchText);
     }
 
@@ -689,6 +696,12 @@ function adminHtml() {
     document.getElementById('copyLookupBatch').onclick=async()=>{
       if(!lastLookupBatchText){show('暂无可复制批量反查结果');return;}
       try{await navigator.clipboard.writeText(lastLookupBatchText);show('已复制批量反查结果');}catch{show('复制失败，请手动复制\\n'+lastLookupBatchText);}
+    };
+
+    document.getElementById('copyLookupOriginals').onclick=async()=>{
+      if(!lastLookupOriginalList.length){show('暂无可复制原CDKEY列表');return;}
+      const out=lastLookupOriginalList.join('\\n');
+      try{await navigator.clipboard.writeText(out);show('已复制原CDKEY列表，共 '+lastLookupOriginalList.length+' 个');}catch{show('复制失败，请手动复制\\n'+out);}
     };
   </script>
 </body>
