@@ -40,12 +40,14 @@
         font-weight: 600;
       }
       input,
+      textarea,
       select,
       button {
         width: 100%;
         box-sizing: border-box;
       }
       input,
+      textarea,
       select {
         border: 1px solid #3754a5;
         background: #0e1630;
@@ -53,6 +55,10 @@
         border-radius: 10px;
         padding: 10px 12px;
         font-size: 14px;
+      }
+      textarea {
+        min-height: 120px;
+        resize: vertical;
       }
       .row {
         display: grid;
@@ -113,17 +119,36 @@
         <button id="copy-btn" class="secondary" type="button">复制结果</button>
       </div>
 
+      <label for="lookup-alias">查询：二次CDKEY -> 原CDKEY</label>
+      <div class="row">
+        <input id="lookup-alias" type="text" placeholder="输入一个二次CDKEY" autocomplete="off" />
+        <button id="lookup-btn" type="button">查询对应原CDKEY</button>
+      </div>
+
+      <label for="lookup-alias-list">批量反查询：二次CDKEY -> 原CDKEY（每行一个）</label>
+      <textarea id="lookup-alias-list" class="lookup-area" placeholder="每行一个二次CDKEY"></textarea>
+      <div class="row">
+        <button id="lookup-batch-btn" type="button">批量查询对应原CDKEY</button>
+        <button id="copy-lookup-batch-btn" class="secondary" type="button">复制批量反查结果</button>
+      </div>
+
       <pre id="result" class="result">等待操作...</pre>
     </main>
 
     <script>
       const createBtn = document.getElementById("create-btn");
       const copyBtn = document.getElementById("copy-btn");
+      const lookupBtn = document.getElementById("lookup-btn");
+      const lookupBatchBtn = document.getElementById("lookup-batch-btn");
+      const copyLookupBatchBtn = document.getElementById("copy-lookup-batch-btn");
       const passwordInput = document.getElementById("password");
       const cdkeyInput = document.getElementById("cdkey");
+      const lookupAliasInput = document.getElementById("lookup-alias");
+      const lookupAliasListInput = document.getElementById("lookup-alias-list");
       const poolInput = document.getElementById("pool");
       const resultNode = document.getElementById("result");
       let lastAlias = "";
+      let lastLookupBatchText = "";
 
       function showResult(text, ok) {
         resultNode.textContent = text;
@@ -146,6 +171,7 @@
         }
 
         createBtn.disabled = true;
+        lastLookupBatchText = "";
         showResult("生成中...", true);
 
         try {
@@ -174,6 +200,98 @@
         }
       });
 
+      lookupBtn.addEventListener("click", async () => {
+        const adminPassword = passwordInput.value.trim();
+        const aliasCdkey = lookupAliasInput.value.trim();
+
+        if (!adminPassword) {
+          showResult("请输入管理密码", false);
+          return;
+        }
+
+        if (!aliasCdkey) {
+          showResult("请输入二次CDKEY", false);
+          return;
+        }
+
+        lookupBtn.disabled = true;
+        lastLookupBatchText = "";
+        showResult("查询中...", true);
+
+        try {
+          const response = await fetch("/v1/admin/alias/lookup", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Admin-Password": adminPassword,
+            },
+            body: JSON.stringify({ alias_cdkey: aliasCdkey }),
+          });
+
+          const payload = await response.json();
+          if (!response.ok || payload.success !== true) {
+            showResult(payload.msg || "查询失败", false);
+            return;
+          }
+
+          const item = payload.data || {};
+          showResult(`Lookup ok\nPool: ${item.pool || ""}\nAlias CDKEY: ${item.alias_cdkey || ""}\nOriginal CDKEY: ${item.cdkey || ""}`, true);
+        } catch (error) {
+          showResult(error.message || "请求失败", false);
+        } finally {
+          lookupBtn.disabled = false;
+        }
+      });
+
+      lookupBatchBtn.addEventListener("click", async () => {
+        const adminPassword = passwordInput.value.trim();
+        const aliasCdkeysText = lookupAliasListInput.value.trim();
+
+        if (!adminPassword) {
+          showResult("请输入管理密码", false);
+          return;
+        }
+
+        if (!aliasCdkeysText) {
+          showResult("请输入二次CDKEY列表", false);
+          return;
+        }
+
+        lookupBatchBtn.disabled = true;
+        showResult("批量查询中...", true);
+
+        try {
+          const response = await fetch("/v1/admin/alias/lookup-from-list", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Admin-Password": adminPassword,
+            },
+            body: JSON.stringify({ alias_cdkeys_text: aliasCdkeysText }),
+          });
+
+          const payload = await response.json();
+          if (!response.ok || payload.success !== true) {
+            showResult(payload.msg || "批量查询失败", false);
+            return;
+          }
+
+          const items = payload.data?.items || [];
+          const rows = items.map((item) => {
+            const alias = item.alias_cdkey || "";
+            const original = item.cdkey || "";
+            const pool = item.pool ? ` [${item.pool}]` : "";
+            return `${alias} => ${original}${pool} [${item.found ? "Found" : "NotFound"}]`;
+          });
+          lastLookupBatchText = rows.join("\n");
+          showResult(`Lookup batch done\nCount: ${payload.data?.count || items.length}\nFound: ${payload.data?.found_count || 0}\nMissing: ${payload.data?.missing_count || 0}\n\n${lastLookupBatchText}`, true);
+        } catch (error) {
+          showResult(error.message || "请求失败", false);
+        } finally {
+          lookupBatchBtn.disabled = false;
+        }
+      });
+
       copyBtn.addEventListener("click", async () => {
         if (!lastAlias) {
           showResult("暂无可复制的二次CDKEY", false);
@@ -185,6 +303,20 @@
           showResult(`Copied: ${lastAlias}`, true);
         } catch {
           showResult(`Copy failed, copy manually: ${lastAlias}`, false);
+        }
+      });
+
+      copyLookupBatchBtn.addEventListener("click", async () => {
+        if (!lastLookupBatchText) {
+          showResult("暂无可复制批量反查结果", false);
+          return;
+        }
+
+        try {
+          await navigator.clipboard.writeText(lastLookupBatchText);
+          showResult("已复制批量反查结果", true);
+        } catch {
+          showResult(`复制失败，请手动复制\n${lastLookupBatchText}`, false);
         }
       });
     </script>

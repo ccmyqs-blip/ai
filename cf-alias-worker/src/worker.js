@@ -243,6 +243,27 @@ function parseCdkeyLines(text) {
     .filter((line) => line.length > 0);
 }
 
+async function lookupAliasMapping(env, aliasRaw) {
+  const alias = normalizeAlias(aliasRaw);
+  const pool = detectAliasPool(alias);
+  if (!pool) {
+    return { alias_cdkey: alias, cdkey: "", pool: "", created_at: "", found: false };
+  }
+
+  const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
+  if (!mapped || !mapped.cdkey) {
+    return { alias_cdkey: alias, cdkey: "", pool, created_at: "", found: false };
+  }
+
+  return {
+    alias_cdkey: alias,
+    cdkey: String(mapped.cdkey).trim(),
+    pool: mappedPool(mapped, alias),
+    created_at: mapped.created_at || "",
+    found: true,
+  };
+}
+
 function targetApiBase(env) {
   return String(env.TARGET_API_BASE || "https://gpt.86gamestore.com/api").replace(/\/+$/, "");
 }
@@ -493,6 +514,12 @@ function adminHtml() {
       <input id="lookupAlias" type="text" placeholder="Alias CDKEY, Pool A / B / C"/>
       <button id="lookup">查询对应原CDKEY</button>
     </div>
+    <label>批量反查询：二次CDKEY -> 原CDKEY（每行一个）</label>
+    <textarea id="lookupAliasList" placeholder="每行一个二次CDKEY"></textarea>
+    <div class="row">
+      <button id="lookupBatch">批量查询对应原CDKEY</button>
+      <button id="copyLookupBatch" class="secondary">复制批量反查结果</button>
+    </div>
 
     <div class="row" style="margin-top:10px">
       <button id="copy" class="secondary">复制单个结果</button>
@@ -506,6 +533,7 @@ function adminHtml() {
     let lastAlias='';
     let lastAliasList=[];
     let lastPairList=[];
+    let lastLookupBatchText='';
     const res=document.getElementById('res');
 
     function show(t){res.textContent=t;}
@@ -608,7 +636,28 @@ function adminHtml() {
       const j=await request('/v1/admin/alias/lookup',{alias_cdkey:alias});
       if(!j) return;
       const item=j.data||{};
+      lastLookupBatchText='';
       show('Lookup ok\\nPool: '+(item.pool||'')+'\\nAlias CDKEY: '+(item.alias_cdkey||'')+'\\nOriginal CDKEY: '+(item.cdkey||''));
+    }
+
+    async function doLookupBatch(){
+      const aliases=String(document.getElementById('lookupAliasList').value||'')
+        .split(/\\r?\\n/)
+        .map(v=>v.trim())
+        .filter(Boolean);
+      if(!aliases.length){show('请先输入二次CDKEY列表');return;}
+      show('批量查询中...');
+      const j=await request('/v1/admin/alias/lookup-from-list',{alias_cdkeys:aliases});
+      if(!j) return;
+      const items=(j.data&&j.data.items)||[];
+      const rows=items.map(item=>{
+        const alias=item.alias_cdkey||'';
+        const original=item.cdkey||'';
+        const pool=item.pool?' ['+item.pool+']':'';
+        return alias+' => '+original+pool+' ['+(item.found?'Found':'NotFound')+']';
+      });
+      lastLookupBatchText=rows.join('\\n');
+      show('Lookup batch done\\nCount: '+(j.data&&j.data.count||items.length)+'\\nFound: '+(j.data&&j.data.found_count||0)+'\\nMissing: '+(j.data&&j.data.missing_count||0)+'\\n\\n'+lastLookupBatchText);
     }
 
     document.getElementById('create').onclick=()=>doCreate(false);
@@ -618,6 +667,7 @@ function adminHtml() {
       await runReindexFlow(true);
     };
     document.getElementById('lookup').onclick=doLookup;
+    document.getElementById('lookupBatch').onclick=doLookupBatch;
 
     document.getElementById('copy').onclick=async()=>{
       if(!lastAlias){show('暂无可复制结果');return;}
@@ -634,6 +684,11 @@ function adminHtml() {
       if(!lastPairList.length){show('暂无可复制映射');return;}
       const out=lastPairList.map(v=>v.cdkey+' => '+v.alias_cdkey).join('\\n');
       try{await navigator.clipboard.writeText(out);show('已复制一对一映射，共 '+lastPairList.length+' 条');}catch{show('复制失败，请手动复制\\n'+out);}
+    };
+
+    document.getElementById('copyLookupBatch').onclick=async()=>{
+      if(!lastLookupBatchText){show('暂无可复制批量反查结果');return;}
+      try{await navigator.clipboard.writeText(lastLookupBatchText);show('已复制批量反查结果');}catch{show('复制失败，请手动复制\\n'+lastLookupBatchText);}
     };
   </script>
 </body>
@@ -844,25 +899,51 @@ export default {
       if (request.method === "POST" && url.pathname === "/v1/admin/alias/lookup") {
         const body = await parseBody(request);
         assertAdminPassword(request, body, env);
-        const alias = normalizeAlias(requiredString(body.alias_cdkey, "alias_cdkey"));
-        const pool = detectAliasPool(alias);
-        if (!pool) {
-          return json({ success: false, msg: "CDKEY not found", data: "" });
-        }
-
-        const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
-        if (!mapped || !mapped.cdkey) {
+        const item = await lookupAliasMapping(env, requiredString(body.alias_cdkey, "alias_cdkey"));
+        if (!item.found) {
           return json({ success: false, msg: "CDKEY not found", data: "" });
         }
 
         return json({
           success: true,
           msg: "ok",
+          data: item,
+        });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/admin/alias/lookup-from-list") {
+        const body = await parseBody(request);
+        assertAdminPassword(request, body, env);
+
+        let aliases = [];
+        if (Array.isArray(body.alias_cdkeys)) {
+          aliases = body.alias_cdkeys.map((v) => String(v || "").trim()).filter(Boolean);
+        } else if (typeof body.alias_cdkeys_text === "string") {
+          aliases = parseCdkeyLines(body.alias_cdkeys_text);
+        }
+
+        if (!aliases.length) {
+          throw new Error("alias_cdkeys is required.");
+        }
+
+        if (aliases.length > MAX_PAIR_COUNT) {
+          throw new Error(`Maximum ${MAX_PAIR_COUNT} alias CDKEYs per request.`);
+        }
+
+        const items = [];
+        for (const alias of aliases) {
+          items.push(await lookupAliasMapping(env, alias));
+        }
+        const foundCount = items.filter((item) => item.found).length;
+
+        return json({
+          success: true,
+          msg: "lookup batch processed",
           data: {
-            alias_cdkey: alias,
-            cdkey: String(mapped.cdkey).trim(),
-            pool: mappedPool(mapped, alias),
-            created_at: mapped.created_at || "",
+            count: items.length,
+            found_count: foundCount,
+            missing_count: items.length - foundCount,
+            items,
           },
         });
       }

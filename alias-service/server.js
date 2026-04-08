@@ -27,6 +27,7 @@ const POOL_B_ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}-[A-Z0-9]{4}$/
 const POOL_C_ALIAS_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}$/;
 const ALIAS_PATTERN = POOL_A_ALIAS_PATTERN;
 const REAL_CDKEY_INDEX_PREFIX = "REAL::";
+const MAX_PAIR_COUNT = 500;
 const ACTIVATION_GATE_WAIT_MS = 10000;
 const ACTIVATION_BUSY_MESSAGE = "\u5f53\u524d\u540c\u65f6\u5151\u6362\u4eba\u6570\u8fc7\u591a\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u4e00\u6b21";
 const activationGate = {
@@ -177,6 +178,13 @@ function optionalString(value) {
   return String(value || "").trim();
 }
 
+function parseCdkeyLines(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
 function normalizeReindexLimit(value) {
   const parsed = Number.parseInt(String(value || ""), 10);
   if (Number.isNaN(parsed)) return 20;
@@ -219,6 +227,27 @@ function storeAliasWithIndex(store, realCdkey, poolRaw = POOL_A) {
   };
   store.index[reverseKey] = alias;
   return { alias, created: true, pool };
+}
+
+function lookupAliasMapping(store, aliasRaw) {
+  const alias = normalizeAlias(aliasRaw);
+  const pool = detectAliasPool(alias);
+  if (!pool) {
+    return { alias_cdkey: alias, cdkey: "", pool: "", created_at: "", found: false };
+  }
+
+  const mapped = store.items[alias];
+  if (!mapped || !mapped.cdkey) {
+    return { alias_cdkey: alias, cdkey: "", pool, created_at: "", found: false };
+  }
+
+  return {
+    alias_cdkey: alias,
+    cdkey: String(mapped.cdkey).trim(),
+    pool: mappedPool(mapped, alias),
+    created_at: mapped.created_at || "",
+    found: true,
+  };
 }
 
 function reindexStore(store, cursorRaw, limitRaw) {
@@ -538,6 +567,64 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && requestUrl.pathname === "/v1/admin/alias/lookup") {
+      const body = await parseJsonBody(req);
+      assertAdminPassword(req, body);
+      const item = lookupAliasMapping(readStore(), requiredString(body.alias_cdkey, "alias_cdkey"));
+
+      if (!item.found) {
+        jsonResponse(res, 200, {
+          success: false,
+          msg: "CDKEY not found",
+          data: "",
+        });
+        return;
+      }
+
+      jsonResponse(res, 200, {
+        success: true,
+        msg: "ok",
+        data: item,
+      });
+      return;
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/v1/admin/alias/lookup-from-list") {
+      const body = await parseJsonBody(req);
+      assertAdminPassword(req, body);
+
+      let aliases = [];
+      if (Array.isArray(body.alias_cdkeys)) {
+        aliases = body.alias_cdkeys.map((v) => String(v || "").trim()).filter(Boolean);
+      } else if (typeof body.alias_cdkeys_text === "string") {
+        aliases = parseCdkeyLines(body.alias_cdkeys_text);
+      }
+
+      if (!aliases.length) {
+        throw new Error("alias_cdkeys is required.");
+      }
+
+      if (aliases.length > MAX_PAIR_COUNT) {
+        throw new Error(`Maximum ${MAX_PAIR_COUNT} alias CDKEYs per request.`);
+      }
+
+      const store = readStore();
+      const items = aliases.map((alias) => lookupAliasMapping(store, alias));
+      const foundCount = items.filter((item) => item.found).length;
+
+      jsonResponse(res, 200, {
+        success: true,
+        msg: "lookup batch processed",
+        data: {
+          count: items.length,
+          found_count: foundCount,
+          missing_count: items.length - foundCount,
+          items,
+        },
+      });
+      return;
+    }
+
     if (req.method === "POST" && requestUrl.pathname === "/v1/admin/alias/reindex") {
       const body = await parseJsonBody(req);
       assertAdminPassword(req, body);
@@ -556,16 +643,9 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && requestUrl.pathname === "/v1/alias/check") {
       const body = await parseJsonBody(req);
-      const alias = normalizeAlias(requiredString(body.alias_cdkey, "alias_cdkey"));
+      const item = lookupAliasMapping(readStore(), requiredString(body.alias_cdkey, "alias_cdkey"));
 
-      const pool = detectAliasPool(alias);
-      if (!pool) {
-        throw new Error("alias_cdkey format invalid.");
-      }
-
-      const store = readStore();
-      const mapped = store.items[alias];
-      if (!mapped) {
+      if (!item.found) {
         jsonResponse(res, 200, {
           success: false,
           msg: "未检测到CDKEY",
@@ -574,8 +654,8 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const result = await callPoolTarget(pool, "/check", {
-        cdkey: normalizeCdkey(mapped.cdkey),
+      const result = await callPoolTarget(item.pool, "/check", {
+        cdkey: normalizeCdkey(item.cdkey),
       });
       const targetMsg = unwrapTargetMessage(result.body);
 
@@ -583,7 +663,7 @@ const server = http.createServer(async (req, res) => {
         success: Boolean(result.body && result.body.success),
         msg: targetMsg || "ok",
         data: {
-          alias_cdkey: alias,
+          alias_cdkey: item.alias_cdkey,
           target_result: result.body,
         },
       });
