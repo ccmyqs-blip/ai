@@ -319,6 +319,70 @@ function normalizeDuolgResult(result) {
   };
 }
 
+function replaceOriginalCdkeyInResult(value, originalCdkey, aliasCdkey) {
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceOriginalCdkeyInResult(item, originalCdkey, aliasCdkey));
+  }
+
+  if (value && typeof value === "object") {
+    const output = {};
+    for (const [key, entry] of Object.entries(value)) {
+      output[key] = replaceOriginalCdkeyInResult(entry, originalCdkey, aliasCdkey);
+    }
+    return output;
+  }
+
+  if (typeof value !== "string") return value;
+  const original = String(originalCdkey || "").trim();
+  const alias = String(aliasCdkey || "").trim();
+  if (!original || !alias) return value;
+  return value.replace(new RegExp(original.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), alias);
+}
+
+function mapDuolgMessage(rawMessage, stage, success) {
+  const raw = String(rawMessage || "").trim();
+  const upper = raw.toUpperCase();
+
+  if (success && stage === "/check") {
+    if (!raw || raw === "ok") return "CDKEY状态正常";
+    return raw;
+  }
+
+  if (!raw) return success ? "ok" : "兑换失败，请稍后重试";
+  if (upper === "INVALID_CDK_FORMAT" || /Invalid CDK format/i.test(raw)) return "CDKEY格式错误，请检查后重新输入";
+  if (raw === "session_info invalid." || /Invalid JSON format/i.test(raw)) return "session_info 不是有效的 JSON 格式";
+  if (/Missing user\.id field/i.test(raw)) return "session_info 缺少 user.id";
+  if (/Missing account\.id field/i.test(raw)) return "session_info 缺少 account.id";
+  if (/Missing accessToken field/i.test(raw)) return "session_info 缺少 accessToken";
+  if (upper === "CDK_NOT_FOUND" || /CDK not found/i.test(raw)) {
+    return stage === "/check" ? "CDKEY不存在、已使用或当前不可兑换" : "CDKEY不存在或已失效";
+  }
+  if (/CDKEY unavailable/i.test(raw)) return "CDKEY不存在、已使用或当前不可兑换";
+  return success ? raw : `兑换失败：${raw}`;
+}
+
+function presentPoolTargetResult(pool, stage, targetResult, aliasCdkey, originalCdkey) {
+  if (normalizePool(pool) !== POOL_B || !targetResult || typeof targetResult !== "object") {
+    return targetResult;
+  }
+
+  const sanitizedData = replaceOriginalCdkeyInResult(targetResult.data, originalCdkey, aliasCdkey);
+  const output = {
+    ...targetResult,
+    msg: mapDuolgMessage(targetResult.msg, stage, targetResult.success === true),
+    data: sanitizedData,
+  };
+
+  if (stage === "/check" && sanitizedData && typeof sanitizedData === "object") {
+    output.data = {
+      ...sanitizedData,
+      cdkey: String(aliasCdkey || "").trim(),
+    };
+  }
+
+  return output;
+}
+
 function duolgPlatformCredential(sessionInfo) {
   let parsed;
   try {
@@ -351,7 +415,15 @@ async function callDuolgTarget(base, pathname, payload) {
   }
 
   if (pathname === "/activate") {
-    const platformCredential = duolgPlatformCredential(payload.session_info);
+    let platformCredential;
+    try {
+      platformCredential = duolgPlatformCredential(payload.session_info);
+    } catch (error) {
+      return {
+        http_status: 200,
+        body: { success: false, msg: String(error?.message || "session_info invalid."), data: "" },
+      };
+    }
     const verifyPayload = { cdk: payload.cdkey, platformCredential };
     const verifyResult = await callTarget(base, "/external/redeem/verify", verifyPayload);
     const normalizedVerify = normalizeDuolgResult(verifyResult.body);
@@ -654,17 +726,18 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const result = await callPoolTarget(item.pool, "/check", {
+      const rawTargetResult = await callPoolTarget(item.pool, "/check", {
         cdkey: normalizeCdkey(item.cdkey),
       });
-      const targetMsg = unwrapTargetMessage(result.body);
+      const targetResult = presentPoolTargetResult(item.pool, "/check", rawTargetResult.body, item.alias_cdkey, item.cdkey);
+      const targetMsg = unwrapTargetMessage(targetResult);
 
       jsonResponse(res, 200, {
-        success: Boolean(result.body && result.body.success),
+        success: Boolean(targetResult && targetResult.success),
         msg: targetMsg || "ok",
         data: {
           alias_cdkey: item.alias_cdkey,
-          target_result: result.body,
+          target_result: targetResult,
         },
       });
       return;
@@ -715,17 +788,18 @@ const server = http.createServer(async (req, res) => {
       try {
         const primaryResult = await callPoolTarget(pool, "/activate", targetPayload);
         const fallbackUsed = pool === POOL_A && shouldFallbackActivate(primaryResult.body);
-        const result = fallbackUsed
+        const rawResult = fallbackUsed
           ? await callTarget(FALLBACK_TARGET_API_BASE, "/activate", targetPayload)
           : primaryResult;
-        const targetMsg = unwrapTargetMessage(result.body);
+        const targetResult = presentPoolTargetResult(pool, "/activate", rawResult.body, alias, mapped.cdkey);
+        const targetMsg = unwrapTargetMessage(targetResult);
 
         jsonResponse(res, 200, {
-          success: Boolean(result.body && result.body.success),
+          success: Boolean(targetResult && targetResult.success),
           msg: targetMsg || "ok",
           data: {
             alias_cdkey: alias,
-            target_result: result.body,
+            target_result: targetResult,
             fallback_used: fallbackUsed,
             attempt_count: fallbackUsed ? 2 : 1,
           },

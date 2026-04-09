@@ -315,6 +315,70 @@ function normalizeDuolgResult(result) {
   };
 }
 
+function replaceOriginalCdkeyInResult(value, originalCdkey, aliasCdkey) {
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceOriginalCdkeyInResult(item, originalCdkey, aliasCdkey));
+  }
+
+  if (value && typeof value === "object") {
+    const output = {};
+    for (const [key, entry] of Object.entries(value)) {
+      output[key] = replaceOriginalCdkeyInResult(entry, originalCdkey, aliasCdkey);
+    }
+    return output;
+  }
+
+  if (typeof value !== "string") return value;
+  const original = String(originalCdkey || "").trim();
+  const alias = String(aliasCdkey || "").trim();
+  if (!original || !alias) return value;
+  return value.replace(new RegExp(original.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), alias);
+}
+
+function mapDuolgMessage(rawMessage, stage, success) {
+  const raw = String(rawMessage || "").trim();
+  const upper = raw.toUpperCase();
+
+  if (success && stage === "/check") {
+    if (!raw || raw === "ok") return "CDKEY状态正常";
+    return raw;
+  }
+
+  if (!raw) return success ? "ok" : "兑换失败，请稍后重试";
+  if (upper === "INVALID_CDK_FORMAT" || /Invalid CDK format/i.test(raw)) return "CDKEY格式错误，请检查后重新输入";
+  if (raw === "session_info invalid." || /Invalid JSON format/i.test(raw)) return "session_info 不是有效的 JSON 格式";
+  if (/Missing user\.id field/i.test(raw)) return "session_info 缺少 user.id";
+  if (/Missing account\.id field/i.test(raw)) return "session_info 缺少 account.id";
+  if (/Missing accessToken field/i.test(raw)) return "session_info 缺少 accessToken";
+  if (upper === "CDK_NOT_FOUND" || /CDK not found/i.test(raw)) {
+    return stage === "/check" ? "CDKEY不存在、已使用或当前不可兑换" : "CDKEY不存在或已失效";
+  }
+  if (/CDKEY unavailable/i.test(raw)) return "CDKEY不存在、已使用或当前不可兑换";
+  return success ? raw : `兑换失败：${raw}`;
+}
+
+function presentPoolTargetResult(pool, stage, targetResult, aliasCdkey, originalCdkey) {
+  if (normalizePool(pool) !== POOL_B || !targetResult || typeof targetResult !== "object") {
+    return targetResult;
+  }
+
+  const sanitizedData = replaceOriginalCdkeyInResult(targetResult.data, originalCdkey, aliasCdkey);
+  const output = {
+    ...targetResult,
+    msg: mapDuolgMessage(targetResult.msg, stage, targetResult.success === true),
+    data: sanitizedData,
+  };
+
+  if (stage === "/check" && sanitizedData && typeof sanitizedData === "object") {
+    output.data = {
+      ...sanitizedData,
+      cdkey: String(aliasCdkey || "").trim(),
+    };
+  }
+
+  return output;
+}
+
 function duolgPlatformCredential(sessionInfo) {
   let parsed;
   try {
@@ -344,7 +408,12 @@ async function callDuolgTarget(base, path, payload) {
   }
 
   if (path === "/activate") {
-    const platformCredential = duolgPlatformCredential(payload.session_info);
+    let platformCredential;
+    try {
+      platformCredential = duolgPlatformCredential(payload.session_info);
+    } catch (error) {
+      return { success: false, msg: String(error?.message || "session_info invalid."), data: "" };
+    }
     const verifyPayload = { cdk: payload.cdkey, platformCredential };
     const verifyResult = normalizeDuolgResult(await callTarget(base, "/external/redeem/verify", verifyPayload));
     if (!verifyResult.success) return verifyResult;
@@ -726,9 +795,10 @@ async function runActivateFromBody(body, env) {
   };
   const primaryResult = await callPoolTarget(env, pool, "/activate", targetPayload);
   const fallbackUsed = pool === POOL_A && shouldFallbackActivate(primaryResult);
-  const targetResult = fallbackUsed
+  const rawTargetResult = fallbackUsed
     ? await callTarget(fallbackTargetApiBase(env), "/activate", targetPayload)
     : primaryResult;
+  const targetResult = presentPoolTargetResult(pool, "/activate", rawTargetResult, alias, mapped.cdkey);
   return json({
     success: Boolean(targetResult && targetResult.success),
     msg: String(targetResult?.msg || "ok"),
@@ -987,7 +1057,8 @@ export default {
         const mapped = await env.ALIAS_MAP.get(alias, { type: "json" });
         if (!mapped || !mapped.cdkey) return json({ success: false, msg: "CDKEY not found", data: "" });
 
-        const targetResult = await callPoolTarget(env, pool, "/check", { cdkey: String(mapped.cdkey).trim() });
+        const rawTargetResult = await callPoolTarget(env, pool, "/check", { cdkey: String(mapped.cdkey).trim() });
+        const targetResult = presentPoolTargetResult(pool, "/check", rawTargetResult, alias, mapped.cdkey);
         return json({
           success: Boolean(targetResult && targetResult.success),
           msg: String(targetResult?.msg || "ok"),
