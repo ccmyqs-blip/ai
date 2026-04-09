@@ -19,6 +19,9 @@ const MAX_BATCH_COUNT = 100;
 const MAX_PAIR_COUNT = 500;
 const ACTIVATION_GATE_WAIT_MS = 10000;
 const ACTIVATION_BUSY_MESSAGE = "\u5f53\u524d\u540c\u65f6\u5151\u6362\u4eba\u6570\u8fc7\u591a\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u4e00\u6b21";
+const SUBSCRIPTION_GATEWAY_BASE = "https://gpt.serve.freespaces.app";
+const SUBSCRIPTION_INFO_PATH = "/api/subscription/info";
+const SUBSCRIPTION_CANCEL_PATH = "/api/subscription/cancel";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -114,6 +117,16 @@ function normalizeForceValue(v) {
   if (!text) return 0;
   if (text === "1" || text === "true" || text === "yes" || text === "on") return 1;
   return 0;
+}
+
+function parseSessionInfo(sessionInfo) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(sessionInfo || ""));
+  } catch {
+    throw new Error("session_info invalid.");
+  }
+  return parsed && typeof parsed === "object" ? parsed : {};
 }
 
 function getAdminPassword(request, body) {
@@ -380,12 +393,7 @@ function presentPoolTargetResult(pool, stage, targetResult, aliasCdkey, original
 }
 
 function duolgPlatformCredential(sessionInfo) {
-  let parsed;
-  try {
-    parsed = JSON.parse(String(sessionInfo || ""));
-  } catch {
-    throw new Error("session_info invalid.");
-  }
+  const parsed = parseSessionInfo(sessionInfo);
   return {
     platform: "chatgpt",
     data: {
@@ -507,6 +515,170 @@ async function callTarget(base, path, payload) {
   } catch {
     return { success: false, msg: "target request failed", data: "" };
   }
+}
+
+async function requestSubscriptionGateway(path, token) {
+  try {
+    const resp = await fetch(`${SUBSCRIPTION_GATEWAY_BASE}${path}`, {
+      method: "POST",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ token }),
+    });
+    const text = await resp.text();
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = { message: text };
+    }
+    return { ok: resp.ok, status: resp.status, body: parsed, path };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      body: { message: String(error?.message || "request failed") },
+      path,
+    };
+  }
+}
+
+function lookupNestedValue(source, path) {
+  let current = source;
+  for (const part of path) {
+    if (!current || typeof current !== "object" || !(part in current)) return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+function isAlreadyCancelledSubscription(info) {
+  if (!info || typeof info !== "object") return false;
+  if (info.auto_renew === false) return true;
+  const markers = [
+    ["cancel_at_period_end"],
+    ["subscription", "cancel_at_period_end"],
+    ["will_cancel"],
+    ["subscription", "will_cancel"],
+    ["auto_renew"],
+    ["subscription", "auto_renew"],
+    ["renew"],
+    ["subscription", "renew"],
+  ];
+  for (const marker of markers) {
+    const value = lookupNestedValue(info, marker);
+    if (value === true && marker[marker.length - 1].includes("cancel")) return true;
+    if (value === false && (marker[marker.length - 1] === "auto_renew" || marker[marker.length - 1] === "renew")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function normalizeCancelFailureMessage(status, rawMessage) {
+  const raw = String(rawMessage || "").trim();
+  if (raw === "session_info invalid." || /Invalid JSON format/i.test(raw)) {
+    return "取消续费失败：session_info 不是有效的 JSON 格式";
+  }
+  if (/token.*missing|token.*invalid/i.test(raw) || (/token/i.test(raw) && /(无效|已过期|过期)/.test(raw))) {
+    return "取消续费失败：session_info 无效或缺少必要登录信息";
+  }
+  if (status === 401 || status === 403) return "取消续费失败：登录状态已失效，请重新获取 session_info";
+  if (status === 404 || status === 405) return "当前账号暂不支持自动取消续费";
+  if (/access.?token/i.test(raw)) return "取消续费失败：session_info 缺少有效 accessToken";
+  if (/unauthorized|forbidden/i.test(raw)) return "取消续费失败：登录状态已失效，请重新获取 session_info";
+  if (/not found/i.test(raw)) return "当前账号暂不支持自动取消续费";
+  if (!raw) return "取消续费失败，请稍后重试";
+  return `取消续费失败：${raw}`;
+}
+
+async function autoCancelSubscription(sessionInfo) {
+  let parsed;
+  try {
+    parsed = parseSessionInfo(sessionInfo);
+  } catch (error) {
+    return {
+      status: "failed",
+      success: false,
+      message: normalizeCancelFailureMessage(400, error?.message),
+    };
+  }
+
+  const accessToken = String(parsed.accessToken || "").trim();
+  if (!accessToken) {
+    return {
+      status: "failed",
+      success: false,
+      message: "取消续费失败：session_info 缺少 accessToken",
+    };
+  }
+
+  const infoResult = await requestSubscriptionGateway(SUBSCRIPTION_INFO_PATH, parsed);
+  if (!infoResult.ok) {
+    return {
+      status: infoResult.status === 404 || infoResult.status === 405 ? "unsupported" : "failed",
+      success: false,
+      message: normalizeCancelFailureMessage(infoResult.status, infoResult.body?.message),
+    };
+  }
+
+  if (infoResult.body?.code !== 200) {
+    return {
+      status: "failed",
+      success: false,
+      message: normalizeCancelFailureMessage(infoResult.status, infoResult.body?.message),
+    };
+  }
+
+  const subscriptionInfo = infoResult.body?.data;
+  if (!subscriptionInfo) {
+    return {
+      status: "unsupported",
+      success: false,
+      message: infoResult.body?.message || "当前账号未检测到可取消的订阅",
+      info_path: infoResult.path,
+    };
+  }
+
+  if (isAlreadyCancelledSubscription(subscriptionInfo)) {
+    return {
+      status: "success",
+      success: true,
+      message: "已处于取消续费状态",
+      info_path: infoResult.path,
+    };
+  }
+
+  const cancelResult = await requestSubscriptionGateway(SUBSCRIPTION_CANCEL_PATH, parsed);
+  if (!cancelResult.ok) {
+    return {
+      status: cancelResult.status === 404 || cancelResult.status === 405 ? "unsupported" : "failed",
+      success: false,
+      message: normalizeCancelFailureMessage(cancelResult.status, cancelResult.body?.message),
+      info_path: infoResult.path,
+      cancel_path: SUBSCRIPTION_CANCEL_PATH,
+    };
+  }
+
+  if (cancelResult.body?.code !== 200) {
+    return {
+      status: "failed",
+      success: false,
+      message: normalizeCancelFailureMessage(cancelResult.status, cancelResult.body?.message),
+      info_path: infoResult.path,
+      cancel_path: SUBSCRIPTION_CANCEL_PATH,
+    };
+  }
+
+  return {
+    status: "success",
+    success: true,
+    message: cancelResult.body?.message || "已自动取消续费",
+    info_path: infoResult.path,
+    cancel_path: SUBSCRIPTION_CANCEL_PATH,
+  };
 }
 
 async function parseBody(request) {
@@ -799,12 +971,16 @@ async function runActivateFromBody(body, env) {
     ? await callTarget(fallbackTargetApiBase(env), "/activate", targetPayload)
     : primaryResult;
   const targetResult = presentPoolTargetResult(pool, "/activate", rawTargetResult, alias, mapped.cdkey);
+  const cancelResult = targetResult && targetResult.success === true
+    ? await autoCancelSubscription(sessionInfo)
+    : null;
   return json({
     success: Boolean(targetResult && targetResult.success),
     msg: String(targetResult?.msg || "ok"),
     data: {
       alias_cdkey: alias,
       target_result: targetResult,
+      cancel_result: cancelResult,
       fallback_used: fallbackUsed,
       attempt_count: fallbackUsed ? 2 : 1,
     },
